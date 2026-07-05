@@ -1,0 +1,55 @@
+name: Daily Stock Briefing
+
+# 평일(월~금) 00:00 UTC = 09:00 KST 에 실행.
+# 한국 공휴일 휴장일 스킵은 코드(src/holidays_kr.py)가 담당한다.
+# 참고: GitHub Actions 의 cron 은 러너 부하에 따라 수 분~수십 분 지연될 수 있다.
+on:
+  schedule:
+    - cron: "0 0 * * 1-5"
+  workflow_dispatch:      # 수동 실행(테스트) 지원
+    inputs:
+      force:
+        description: "휴장일에도 강제 발송 (테스트용)"
+        type: boolean
+        default: false
+
+jobs:
+  send-briefing:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run briefing
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_MODEL: ${{ vars.ANTHROPIC_MODEL }}
+          SMTP_HOST: ${{ vars.SMTP_HOST }}
+          SMTP_PORT: ${{ vars.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          MAIL_TO: ${{ secrets.MAIL_TO }}
+          MAIL_FROM_NAME: ${{ vars.MAIL_FROM_NAME }}
+          KAKAO_REST_KEY: ${{ secrets.KAKAO_REST_KEY }}
+          KAKAO_REFRESH_TOKEN: ${{ secrets.KAKAO_REFRESH_TOKEN }}
+          KAKAO_REDIRECT_URI: ${{ vars.KAKAO_REDIRECT_URI }}
+        run: |
+          if [ "${{ github.event.inputs.force }}" = "true" ]; then
+            python -m src.main --force
+          else
+            python -m src.main
+          fi

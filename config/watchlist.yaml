@@ -1,0 +1,56 @@
+# 주요 테마 종목 워치리스트 (섹션 2: 주도 섹터 & 주목 종목)
+#
+# 관심 테마와 종목을 여기서 직접 관리합니다. (잡주 대신 엄선한 우량주)
+# 브리핑은 매일 '그날 강한 섹터 순서'로 정렬해 보여줍니다.
+#   ticker 는 yfinance 형식: KOSPI=6자리.KS, KOSDAQ=6자리.KQ
+#   emoji 는 섹션 제목 앞에 붙는 아이콘입니다.
+
+themes:
+  - name: "AI·반도체"
+    emoji: "⚡"
+    stocks:
+      - { name: "삼성전자",         ticker: "005930.KS" }
+      - { name: "SK하이닉스",       ticker: "000660.KS" }
+      - { name: "한미반도체",       ticker: "042700.KS" }
+
+  - name: "우주·방산"
+    emoji: "🚀"
+    stocks:
+      - { name: "한화에어로스페이스", ticker: "012450.KS" }
+      - { name: "LIG넥스원",        ticker: "079550.KS" }
+      - { name: "한국항공우주",      ticker: "047810.KS" }
+
+  - name: "2차전지"
+    emoji: "🔋"
+    stocks:
+      - { name: "LG에너지솔루션",    ticker: "373220.KS" }
+      - { name: "에코프로비엠",      ticker: "247540.KQ" }
+      - { name: "포스코퓨처엠",      ticker: "003670.KS" }
+
+  - name: "바이오·제약"
+    emoji: "💊"
+    stocks:
+      - { name: "삼성바이오로직스",  ticker: "207940.KS" }
+      - { name: "셀트리온",         ticker: "068270.KS" }
+      - { name: "알테오젠",         ticker: "196170.KQ" }
+
+  - name: "원자력·전력"
+    emoji: "🔌"
+    stocks:
+      - { name: "두산에너빌리티",    ticker: "034020.KS" }
+      - { name: "HD현대일렉트릭",    ticker: "267260.KS" }
+      - { name: "LS ELECTRIC",     ticker: "010120.KS" }
+
+  - name: "자율주행·로봇"
+    emoji: "🤖"
+    stocks:
+      - { name: "현대차",           ticker: "005380.KS" }
+      - { name: "두산로보틱스",      ticker: "454910.KS" }
+      - { name: "레인보우로보틱스",  ticker: "277810.KQ" }
+
+  - name: "가상자산·핀테크"
+    emoji: "🪙"
+    stocks:
+      - { name: "카카오페이",        ticker: "377300.KS" }
+      - { name: "우리기술투자",      ticker: "041190.KQ" }
+      - { name: "한화투자증권",      ticker: "003530.KS" }

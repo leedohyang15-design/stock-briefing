@@ -1,0 +1,18 @@
+# 환경변수 / 자격증명
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# 로그 / 임시
+*.log
+.DS_Store
+.kakao_*.tmp
+
+# 로컬 에디터/도구 설정
+.claude/
