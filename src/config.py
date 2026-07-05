@@ -33,20 +33,32 @@ def _get_int(key: str, default: int) -> int:
         return default
 
 
+def _get_str(key: str, default: str) -> str:
+    """환경변수를 읽되, 없거나 '빈 문자열'이면 기본값을 쓴다.
+
+    GitHub Actions 는 미설정 Variable 을 빈 문자열로 주입하므로
+    (`SMTP_HOST: ${{ vars.SMTP_HOST }}` → `SMTP_HOST=`), 단순 os.getenv 의
+    기본값이 먹지 않는다. 빈 값도 '미설정'으로 취급해 기본값으로 대체한다.
+    """
+    val = os.getenv(key)
+    return val.strip() if val and val.strip() else default
+
+
 @dataclass
 class Config:
     # LLM — Gemini(무료) 또는 Claude. 둘 다 있으면 Gemini 우선.
     gemini_api_key: str = field(default_factory=lambda: os.getenv("GEMINI_API_KEY", "").strip())
-    gemini_model: str = field(default_factory=lambda: os.getenv("GEMINI_MODEL", "gemini-2.5-flash").strip())
+    gemini_model: str = field(default_factory=lambda: _get_str("GEMINI_MODEL", "gemini-2.5-flash"))
     anthropic_api_key: str = field(default_factory=lambda: os.getenv("ANTHROPIC_API_KEY", "").strip())
-    anthropic_model: str = field(default_factory=lambda: os.getenv("ANTHROPIC_MODEL", "claude-haiku-4-5").strip())
+    anthropic_model: str = field(default_factory=lambda: _get_str("ANTHROPIC_MODEL", "claude-haiku-4-5"))
 
     # SMTP
-    smtp_host: str = field(default_factory=lambda: os.getenv("SMTP_HOST", "smtp.gmail.com").strip())
+    smtp_host: str = field(default_factory=lambda: _get_str("SMTP_HOST", "smtp.gmail.com"))
     smtp_port: int = field(default_factory=lambda: _get_int("SMTP_PORT", 587))
     smtp_user: str = field(default_factory=lambda: os.getenv("SMTP_USER", "").strip())
-    smtp_password: str = field(default_factory=lambda: os.getenv("SMTP_PASSWORD", "").strip())
-    mail_from_name: str = field(default_factory=lambda: os.getenv("MAIL_FROM_NAME", "데일리 주식 브리핑").strip())
+    # Gmail 앱 비밀번호는 표시상 4칸 공백이 들어가므로 공백을 제거한다.
+    smtp_password: str = field(default_factory=lambda: os.getenv("SMTP_PASSWORD", "").replace(" ", "").strip())
+    mail_from_name: str = field(default_factory=lambda: _get_str("MAIL_FROM_NAME", "데일리 주식 브리핑"))
 
     # 카카오톡 '나에게 보내기' (메모 API) — 무료. 세팅은 scripts/kakao_auth.py 참고.
     kakao_rest_key: str = field(default_factory=lambda: os.getenv("KAKAO_REST_KEY", "").strip())
@@ -54,7 +66,7 @@ class Config:
     # Client Secret 을 '사용함'으로 켠 경우에만 필요 (기본 빈 값이면 미전송).
     kakao_client_secret: str = field(default_factory=lambda: os.getenv("KAKAO_CLIENT_SECRET", "").strip())
     kakao_redirect_uri: str = field(
-        default_factory=lambda: os.getenv("KAKAO_REDIRECT_URI", "https://localhost").strip()
+        default_factory=lambda: _get_str("KAKAO_REDIRECT_URI", "https://localhost")
     )
 
     @property
