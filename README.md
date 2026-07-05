@@ -97,6 +97,7 @@ python -m src.main --force
    | `SMTP_PASSWORD` | Gmail 앱 비밀번호 |
    | `MAIL_TO` | 받을 이메일 (쉼표로 여러 명) |
    | `KAKAO_REST_KEY` | 카카오 REST API 키 (카톡 알림 쓸 때만) |
+   | `KAKAO_CLIENT_SECRET` | 카카오 Client Secret (Client Secret 을 켠 경우만) |
    | `KAKAO_REFRESH_TOKEN` | `kakao_auth.py` 로 발급한 값 (카톡 알림 쓸 때만) |
 
    **Variables** (비민감 설정, 선택 — 미설정 시 기본값 사용):
