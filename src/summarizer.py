@@ -142,6 +142,36 @@ def annotate_theme_summaries(groups) -> None:
             g.summary = causes[i + 1]
 
 
+# ── 섹션 2: 종목별 등락 원인 (항목 옆 한 줄) ──────────────
+def annotate_stock_reasons(groups) -> None:
+    """각 종목(Stock)의 .reason 을 채운다. 전 종목을 1회 호출로 배치 처리."""
+    client = _client()
+    if not client or not groups:
+        return
+    pairs = [(g, s) for g in groups for s in g.stocks if s.ok]
+    if not pairs:
+        return
+    listing = "\n".join(
+        f"{i + 1}. {s.name} [{g.name}] {s.change_pct:+.2f}%"
+        for i, (g, s) in enumerate(pairs)
+    )
+    prompt = (
+        "다음은 테마별 개별 종목의 전일 등락률이다.\n"
+        f"{listing}\n\n"
+        f"각 종목이 그렇게 움직인 이유를 개인 투자자 눈높이에서 아주 짧게(15자 내외) "
+        f"한 줄로 추정하라. 반드시 종목 수({len(pairs)}개)만큼 '번호. 이유' 형태로만 "
+        "줄바꿈해 출력하라. 확실치 않으면 '테마 동반 등락'·'보합권 등락' 정도로 신중히 쓰고, "
+        "매수/매도 권유는 하지 말 것.\n예)\n1. 실적 기대에 강세\n2. 차익실현 매물 출회"
+    )
+    out = _complete(client, prompt, max_tokens=1200)
+    if not out:
+        return
+    reasons = _parse_numbered(out)
+    for i, (_, s) in enumerate(pairs):
+        if (i + 1) in reasons:
+            s.reason = reasons[i + 1]
+
+
 # ── 섹션 2 보조: 기타 급등 테마 원인 ─────────────────────
 def annotate_hot_theme_causes(themes) -> None:
     """각 HotTheme 의 .cause 를 채운다 (급등 원인 1줄). 실패 시 None 유지."""

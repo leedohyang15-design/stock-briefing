@@ -27,6 +27,7 @@ class Stock:
     ticker: str
     close: Optional[float] = None
     change_pct: Optional[float] = None
+    reason: Optional[str] = None  # summarizer 가 채우는 종목별 등락 원인 1줄
 
     @property
     def ok(self) -> bool:

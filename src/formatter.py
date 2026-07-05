@@ -77,15 +77,25 @@ def _fmt_index_html(q) -> str:
     )
 
 
-def _index_html_lines(quotes) -> List[str]:
-    """그룹별로 색상 입힌 HTML 라인 반환."""
+def _index_html_blocks(quotes) -> str:
+    """그룹(국내/해외/환율) 라벨 + 종목당 한 줄로 렌더 (모바일 줄바꿈 방지)."""
     order = ["국내", "해외", "환율"]
-    lines = []
+    out = []
     for grp in order:
-        items = [_fmt_index_html(q) for q in quotes if q.group == grp]
-        if items:
-            lines.append(" &nbsp;|&nbsp; ".join(items))
-    return lines
+        qs = [q for q in quotes if q.group == grp]
+        if not qs:
+            continue
+        rows = "".join(
+            f"<div style='margin:2px 0;white-space:nowrap;'>{_fmt_index_html(q)}</div>"
+            for q in qs
+        )
+        out.append(
+            f"<div style='margin:10px 0 4px;'>"
+            f"<span style='display:inline-block;font-size:11px;font-weight:600;color:#fff;"
+            f"background:#868e96;border-radius:4px;padding:1px 8px;margin-bottom:4px;'>{grp}</span>"
+            f"{rows}</div>"
+        )
+    return "".join(out) or "<div>데이터 없음</div>"
 
 
 # ── 텍스트 본문 ───────────────────────────────────────────
@@ -115,7 +125,8 @@ def build_text(b: Briefing) -> str:
             L.append("")
             L.append(f"{g.emoji} {g.name} 섹터 ({g.label})")
             for s in g.stocks:
-                L.append(f"- {s.name}: {s.close:,}원 ({_sign(s.change_pct)}{s.change_pct:.2f}%)")
+                reason = f" · {s.reason}" if s.reason else ""
+                L.append(f"- {s.name}: {s.close:,}원 ({_sign(s.change_pct)}{s.change_pct:.2f}%){reason}")
             if g.summary:
                 L.append(f"💬 요약: {g.summary}")
     else:
@@ -178,18 +189,19 @@ def _sector_color(label: str, avg: float) -> str:
 
 
 def build_html(b: Briefing) -> str:
-    # 섹션 1 (등락률 색상 적용 — 이미 span 이 포함되므로 _esc 하지 않음)
-    idx_html = "".join(f"<div style='margin:3px 0;'>{l}</div>" for l in _index_html_lines(b.index_quotes)) \
-        or "<div>데이터 없음</div>"
+    # 섹션 1 (그룹 라벨 + 종목당 한 줄, 등락률 색상)
+    idx_html = _index_html_blocks(b.index_quotes)
 
     # 섹션 2
     sector_blocks = []
     for g in b.theme_groups:
         col = _sector_color(g.label, g.avg_change)
         stock_lis = "".join(
-            f"<li style='margin:3px 0;'>{_esc(s.name)}: {s.close:,}원 "
+            f"<li style='margin:4px 0;'>{_esc(s.name)}: {s.close:,}원 "
             f"<span style='color:{'#e03131' if s.change_pct>0 else ('#1c7ed6' if s.change_pct<0 else '#868e96')};'>"
-            f"({_sign(s.change_pct)}{s.change_pct:.2f}%)</span></li>"
+            f"({_sign(s.change_pct)}{s.change_pct:.2f}%)</span>"
+            + (f"<span style='color:#888;font-size:12px;'> · {_esc(s.reason)}</span>" if s.reason else "")
+            + "</li>"
             for s in g.stocks
         )
         summary_html = (

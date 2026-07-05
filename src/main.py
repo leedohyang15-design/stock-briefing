@@ -51,6 +51,7 @@ def run(force: bool = False) -> int:
     # ── 2. 요약 (LLM 또는 폴백) ───────────────────────────
     indices_comment = summarizer.summarize_indices_comment(indices.to_plain_lines(idx_quotes))
     _safe("테마 요약", lambda: summarizer.annotate_theme_summaries(theme_groups), None)
+    _safe("종목별 등락 원인", lambda: summarizer.annotate_stock_reasons(theme_groups), None)
     _safe("급등 테마 원인", lambda: summarizer.annotate_hot_theme_causes(hot_themes), None)
     calendar_summary = summarizer.summarize_calendar(cal_collector.to_plain_lines(cal_events))
 
