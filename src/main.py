@@ -17,7 +17,8 @@ from .holidays_kr import (
 )
 from . import formatter, sender, summarizer
 from .collectors import calendar as cal_collector
-from .collectors import hot_sectors, indices, issues
+from .collectors import hot_sectors, indices, issues, watchlist
+from .collectors.watchlist import ThemeGroup
 
 
 def _safe(label, fn, default):
@@ -40,15 +41,19 @@ def run(force: bool = False) -> int:
 
     # ── 1. 수집 (부분 실패 허용) ──────────────────────────
     idx_quotes = _safe("지수/환율", indices.fetch_indices, [])
-    theme_groups = _safe("실시간 핫섹터", lambda: hot_sectors.fetch_hot_sectors(7, 2), [])
-    us_trending = _safe("미국 인기검색 종목", lambda: hot_sectors.fetch_trending_us(5), [])
+    big_sectors = _safe("빅 섹터(국내+미국 큐레이션)", watchlist.fetch_theme_groups, [])
+    trending_themes, small_movers = _safe(
+        "트렌딩 테마/기타 종목", lambda: hot_sectors.fetch_trending(5, 2, 6), ([], []))
     top_issues = _safe("주요 이슈", lambda: issues.fetch_top_issues(3), [])
     cal_events = _safe("일정/리스크", lambda: cal_collector.fetch_calendar(today), [])
 
     # ── 2. 요약 (LLM 또는 폴백) ───────────────────────────
     indices_comment = summarizer.summarize_indices_comment(indices.to_plain_lines(idx_quotes))
-    _safe("섹터 원인 분석", lambda: summarizer.annotate_theme_summaries(theme_groups), None)
-    _safe("종목별 등락 원인", lambda: summarizer.annotate_stock_reasons(theme_groups), None)
+    _safe("빅 섹터 원인분석", lambda: summarizer.annotate_theme_summaries(big_sectors), None)
+    _safe("트렌딩 원인분석", lambda: summarizer.annotate_theme_summaries(trending_themes), None)
+    # 빅 섹터 종목 + 기타 강세 종목의 개별 원인을 1회 호출로 채움
+    _movers_group = ThemeGroup(name="기타 강세", emoji="💡", stocks=small_movers)
+    _safe("종목별 등락 원인", lambda: summarizer.annotate_stock_reasons(big_sectors + [_movers_group]), None)
     calendar_summary = summarizer.summarize_calendar(cal_collector.to_plain_lines(cal_events))
 
     # ── 3. 포맷 ───────────────────────────────────────────
@@ -57,8 +62,9 @@ def run(force: bool = False) -> int:
         today=today,
         index_quotes=idx_quotes,
         indices_comment=indices_comment,
-        theme_groups=theme_groups,
-        us_trending=us_trending,
+        theme_groups=big_sectors,
+        trending_themes=trending_themes,
+        small_movers=small_movers,
         issues=top_issues,
         calendar_summary=calendar_summary,
     )

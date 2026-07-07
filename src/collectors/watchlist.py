@@ -29,6 +29,7 @@ class Stock:
     change_pct: Optional[float] = None
     reason: Optional[str] = None  # summarizer 가 채우는 종목별 등락 원인 1줄
     currency: str = "KRW"         # 표시 통화: "KRW"(원) | "USD"($)
+    trade_value: Optional[float] = None  # 거래대금(백만원) — 대형/소형 판별용
 
     @property
     def ok(self) -> bool:
@@ -42,6 +43,7 @@ class ThemeGroup:
     stocks: List[Stock] = field(default_factory=list)
     summary: Optional[str] = None  # summarizer 가 채우는 급등/흐름 원인 1줄
     headline_pct: Optional[float] = None  # 테마 자체 등락률(핫테마 소스). 있으면 label 에 우선 사용
+    trade_value: Optional[float] = None   # 테마 대표 거래대금(백만원) — 빅/스몰 정렬용
 
     @property
     def avg_change(self) -> float:
@@ -72,6 +74,7 @@ def _fill_quote(stock: Stock) -> None:
             last, prev = float(closes.iloc[-1]), float(closes.iloc[-2])
             stock.close = round(last, 2)  # 미장 종목의 센트 보존 (원화는 표시 시 정수 처리)
             stock.change_pct = round((last - prev) / prev * 100, 2) if prev else 0.0
+            stock.currency = "KRW" if stock.ticker.endswith((".KS", ".KQ")) else "USD"
     except Exception as e:  # noqa: BLE001
         print(f"[watchlist] {stock.name}({stock.ticker}) 조회 실패: {e}")
 

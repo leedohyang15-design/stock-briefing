@@ -23,9 +23,9 @@ class Briefing:
     today: dt.date
     index_quotes: list              # 섹션 1 원본 (IndexQuote: .group/.name/.value/.change_pct/.arrow)
     indices_comment: str            # 섹션 1 💡 관전 포인트
-    theme_groups: list              # 섹션 2 (ThemeGroup: .name/.emoji/.stocks/.label/.summary)
-    hot_themes: list = field(default_factory=list)  # 섹션 2 상단 🌟 기타 급등 테마 (HotTheme)
-    us_trending: list = field(default_factory=list)  # 섹션 2 하단 🌎 미국 인기검색 종목 (Stock)
+    theme_groups: list              # 섹션2 🏢 빅 섹터(국내+미국 큐레이션) (ThemeGroup)
+    trending_themes: list = field(default_factory=list)  # 섹션2 ⚡ 트렌딩 스몰 섹션 (ThemeGroup)
+    small_movers: list = field(default_factory=list)     # 섹션2 💡 기타 강세 종목 (Stock)
     issues: list = field(default_factory=list)   # 섹션 3 (Issue: .title/.url)
     calendar_summary: str = ""      # 섹션 4
 
@@ -51,6 +51,11 @@ def _stock_price(s) -> str:
     if getattr(s, "currency", "KRW") == "USD":
         return f"${s.close:,.2f}"
     return f"{s.close:,.0f}원"
+
+
+def _flag(s) -> str:
+    """종목 국적 국기: 국내=🇰🇷, 미국=🇺🇸."""
+    return "🇺🇸" if getattr(s, "currency", "KRW") == "USD" else "🇰🇷"
 
 
 def _fmt_index(q) -> str:
@@ -121,29 +126,34 @@ def build_text(b: Briefing) -> str:
         L.append(f"- {line}")
     L.append(f"💡 {b.indices_comment}")
     L.append("")
-    L.append("🔥 [2] 오늘의 주도 섹터 & 주목 종목")
-    for t in b.hot_themes:
-        lead = f" (주도주: {', '.join(t.leaders)})" if t.leaders else ""
-        L.append("")
-        L.append(f"🌟 [오늘의 급등 테마] {t.name} (+{t.change_pct:.2f}%){lead}")
-        if t.cause:
-            L.append(f"💬 {t.cause}")
+    L.append("🔥 [2] 오늘의 주도 섹터 & 국내외 핵심 종목")
+    L.append("")
+    L.append("🏢 시장 주도 빅 섹션 (국내+미국 핵심주)")
     if b.theme_groups:
         for g in b.theme_groups:
             L.append("")
-            L.append(f"{g.emoji} {g.name} 섹터 ({g.label})")
+            L.append(f"{g.emoji} {g.name} ({g.label})")
             for s in g.stocks:
                 reason = f" · {s.reason}" if s.reason else ""
-                L.append(f"- {s.name}: {_stock_price(s)} ({_sign(s.change_pct)}{s.change_pct:.2f}%){reason}")
+                L.append(f"- {_flag(s)} {s.name}: {_stock_price(s)} ({_sign(s.change_pct)}{s.change_pct:.2f}%){reason}")
             if g.summary:
-                L.append(f"🔍 원인 분석: {g.summary}")
+                L.append(f"💬 이유 & 관전 포인트: {g.summary}")
     else:
         L.append("- 데이터 없음")
-    if b.us_trending:
+    if b.trending_themes:
         L.append("")
-        L.append("🌎 미국 인기검색 종목 (실시간)")
-        for s in b.us_trending:
-            L.append(f"- {s.name}: {_stock_price(s)} ({_sign(s.change_pct)}{s.change_pct:.2f}%)")
+        L.append("⚡ 당일 트렌딩 스몰 섹션 (단기 이슈/테마)")
+        for g in b.trending_themes:
+            members = ", ".join(f"{s.name} {_sign(s.change_pct)}{s.change_pct:.2f}%" for s in g.stocks)
+            L.append(f"{g.emoji} {g.name} ({g.label}) — {members}")
+            if g.summary:
+                L.append(f"  💬 {g.summary}")
+    if b.small_movers:
+        L.append("")
+        L.append("💡 기타 당일 강세 종목 (단기 급등·소형주)")
+        for s in b.small_movers:
+            reason = f" · {s.reason}" if s.reason else ""
+            L.append(f"- {_flag(s)} {s.name}: {_stock_price(s)} ({_sign(s.change_pct)}{s.change_pct:.2f}%){reason}")
     L.append("")
     L.append("📰 [3] 전일 주요 이슈 & 뉴스")
     if b.issues:
@@ -179,12 +189,12 @@ def build_kakao_text(b: Briefing) -> str:
     if idx_bits:
         L.append("🌐 " + " · ".join(idx_bits))
 
-    # 급등 테마 (있으면 최우선)
-    if b.hot_themes:
-        hot = b.hot_themes[0]
-        L.append(f"🌟 급등테마: {hot.name} +{hot.change_pct:.1f}%")
+    # 트렌딩 테마 (있으면 최우선)
+    if b.trending_themes:
+        hot = b.trending_themes[0]
+        L.append(f"🌟 트렌딩: {hot.name} ({hot.label})")
 
-    # 주도 섹터 상위 2개
+    # 빅 섹터 상위 2개
     if b.theme_groups:
         tops = [f"{g.name}({g.label})" for g in b.theme_groups[:2]]
         L.append("🔥 주도: " + ", ".join(tops))
@@ -205,14 +215,16 @@ def build_html(b: Briefing) -> str:
     # 섹션 1 (그룹 라벨 + 종목당 한 줄, 등락률 색상)
     idx_html = _index_html_blocks(b.index_quotes)
 
-    # 섹션 2
-    sector_blocks = []
+    def _pct_span(v: float) -> str:
+        c = _pct_color(v)
+        return f"<span style='color:{c};font-weight:600;'>({_sign(v)}{v:.2f}%)</span>"
+
+    # 섹션 2-A · 🏢 시장 주도 빅 섹션 (국내+미국 큐레이션)
+    big_blocks = []
     for g in b.theme_groups:
         col = _sector_color(g.label, g.avg_change)
         stock_lis = "".join(
-            f"<li style='margin:4px 0;'>{_esc(s.name)}: {_stock_price(s)} "
-            f"<span style='color:{'#e03131' if s.change_pct>0 else ('#1c7ed6' if s.change_pct<0 else '#868e96')};'>"
-            f"({_sign(s.change_pct)}{s.change_pct:.2f}%)</span>"
+            f"<li style='margin:4px 0;'>{_flag(s)} {_esc(s.name)}: {_stock_price(s)} {_pct_span(s.change_pct)}"
             + (f"<span style='color:#888;font-size:12px;'> · {_esc(s.reason)}</span>" if s.reason else "")
             + "</li>"
             for s in g.stocks
@@ -220,51 +232,52 @@ def build_html(b: Briefing) -> str:
         summary_html = (
             f"<div style='color:#444;font-size:13px;line-height:1.55;margin:8px 0 0;"
             f"background:#f1f5f9;border-left:3px solid #2b6cb0;padding:9px 11px;border-radius:6px;'>"
-            f"🔍 <b>원인 분석</b><br>{_esc(g.summary)}</div>"
+            f"💬 <b>이유 &amp; 관전 포인트</b><br>{_esc(g.summary)}</div>"
             if g.summary else ""
         )
-        sector_blocks.append(
+        big_blocks.append(
             f"<div style='margin:16px 0;'>"
             f"<div style='font-size:15px;font-weight:bold;margin-bottom:6px;'>"
-            f"{g.emoji} {_esc(g.name)} 섹터 <span style='color:{col};'>({_esc(g.label)})</span></div>"
+            f"{g.emoji} {_esc(g.name)} <span style='color:{col};'>({_esc(g.label)})</span></div>"
             f"<ul style='padding-left:18px;margin:0;color:#333;line-height:1.5;font-size:14px;'>{stock_lis}</ul>"
             f"{summary_html}</div>"
         )
-    sector_html = "".join(sector_blocks) or "<div>데이터 없음</div>"
+    big_html = "".join(big_blocks) or "<div style='color:#888;'>데이터 없음</div>"
 
-    # 섹션 2 상단: 🌟 기타 급등 테마 (있을 때만)
-    hot_blocks = []
-    for t in b.hot_themes:
-        lead = f" <span style='color:#999;font-size:12px;'>주도주: {_esc(', '.join(t.leaders))}</span>" if t.leaders else ""
-        cause = (
-            f"<div style='color:#8a6d00;font-size:13px;margin-top:4px;'>💬 {_esc(t.cause)}</div>"
-            if t.cause else ""
+    # 섹션 2-B · ⚡ 당일 트렌딩 스몰 섹션 (실시간 네이버 핫테마)
+    trend_blocks = []
+    for g in b.trending_themes:
+        members = " · ".join(f"{_esc(s.name)} {_pct_span(s.change_pct)}" for s in g.stocks)
+        cause = (f"<div style='color:#8a6d00;font-size:12px;margin-top:3px;'>💬 {_esc(g.summary)}</div>"
+                 if g.summary else "")
+        trend_blocks.append(
+            f"<div style='margin:10px 0;padding:9px 11px;background:#fff9e6;border:1px solid #ffe08a;border-radius:8px;'>"
+            f"<div style='font-size:14px;font-weight:bold;'>{g.emoji} {_esc(g.name)} "
+            f"<span style='color:#e03131;'>({_esc(g.label)})</span></div>"
+            f"<div style='color:#333;font-size:13px;margin-top:3px;'>{members}</div>{cause}</div>"
         )
-        hot_blocks.append(
-            f"<div style='margin:12px 0;padding:10px 12px;background:#fff9e6;"
-            f"border:1px solid #ffe08a;border-radius:8px;'>"
-            f"<div style='font-size:14px;font-weight:bold;'>🌟 오늘의 급등 테마 · "
-            f"{_esc(t.name)} <span style='color:#e03131;'>(+{t.change_pct:.2f}%)</span>{lead}</div>"
-            f"{cause}</div>"
-        )
-    hot_html = "".join(hot_blocks)
+    trend_html = (
+        "<div style='margin-top:18px;'><div style='font-size:14px;font-weight:bold;color:#555;'>"
+        "⚡ 당일 트렌딩 스몰 섹션 <span style='font-weight:normal;color:#888;font-size:12px;'>"
+        "(실시간 급등 테마)</span></div>" + "".join(trend_blocks) + "</div>"
+    ) if b.trending_themes else ""
 
-    # 섹션 2 하단: 🌎 미국 인기검색 종목 (실시간 트렌딩)
-    if b.us_trending:
-        us_lis = "".join(
-            f"<li style='margin:4px 0;'>{_esc(s.name)}: {_stock_price(s)} "
-            f"<span style='color:{'#e03131' if s.change_pct>0 else ('#1c7ed6' if s.change_pct<0 else '#868e96')};'>"
-            f"({_sign(s.change_pct)}{s.change_pct:.2f}%)</span></li>"
-            for s in b.us_trending
+    # 섹션 2-C · 💡 기타 당일 강세 종목 (상한가성 소형주)
+    if b.small_movers:
+        mover_lis = "".join(
+            f"<li style='margin:3px 0;'>{_flag(s)} {_esc(s.name)}: {_stock_price(s)} {_pct_span(s.change_pct)}"
+            + (f"<span style='color:#888;font-size:12px;'> · {_esc(s.reason)}</span>" if s.reason else "")
+            + "</li>"
+            for s in b.small_movers
         )
-        us_html = (
-            "<div style='margin:18px 0 4px;padding-top:10px;border-top:1px dashed #ccc;'>"
-            "<div style='font-size:15px;font-weight:bold;margin-bottom:6px;'>🌎 미국 인기검색 종목 "
-            "<span style='color:#888;font-size:12px;font-weight:normal;'>(실시간 트렌딩)</span></div>"
-            f"<ul style='padding-left:18px;margin:0;color:#333;line-height:1.5;font-size:14px;'>{us_lis}</ul></div>"
+        movers_html = (
+            "<div style='margin-top:16px;'><div style='font-size:14px;font-weight:bold;color:#555;'>"
+            "💡 기타 당일 강세 종목 <span style='font-weight:normal;color:#888;font-size:12px;'>"
+            "(단기 급등·소형주)</span></div>"
+            f"<ul style='padding-left:18px;margin:6px 0 0;color:#333;line-height:1.5;font-size:13px;'>{mover_lis}</ul></div>"
         )
     else:
-        us_html = ""
+        movers_html = ""
 
     # 섹션 3
     if b.issues:
@@ -295,11 +308,12 @@ def build_html(b: Briefing) -> str:
   <div style="color:#555;font-size:13px;margin-top:8px;background:#f8f9fa;padding:8px 10px;border-radius:6px;">
     💡 {_nl2br(b.indices_comment)}</div>
 
-  {h2("🔥 [2] 오늘의 주도 섹터 &amp; 주목 종목")}
-  <div style="color:#888;font-size:13px;">그날 실시간 급등 테마 순으로 정렬한 핵심 섹터·종목입니다.</div>
-  {hot_html}
-  {sector_html}
-  {us_html}
+  {h2("🔥 [2] 오늘의 주도 섹터 &amp; 국내외 핵심 종목")}
+  <div style="color:#888;font-size:13px;">시장을 움직이는 거대한 축(빅 섹션)과 당일 핫했던 틈새 테마(스몰 섹션)의 국내외 흐름입니다.</div>
+  <div style="font-size:14px;font-weight:bold;color:#555;margin-top:12px;">🏢 시장 주도 빅 섹션 <span style="font-weight:normal;color:#888;font-size:12px;">(국내+미국 핵심주)</span></div>
+  {big_html}
+  {trend_html}
+  {movers_html}
 
   {h2("📰 [3] 전일 주요 이슈 &amp; 뉴스")}
   <ul style="padding-left:18px;margin:0;line-height:1.5;">{issue_html}</ul>
