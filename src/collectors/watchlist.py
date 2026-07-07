@@ -66,7 +66,7 @@ def _fill_quote(stock: Stock) -> None:
         closes = hist["Close"].dropna() if hist is not None else []
         if len(closes) >= 2:
             last, prev = float(closes.iloc[-1]), float(closes.iloc[-2])
-            stock.close = round(last)
+            stock.close = round(last, 2)  # 미장 종목의 센트 보존 (원화는 표시 시 정수 처리)
             stock.change_pct = round((last - prev) / prev * 100, 2) if prev else 0.0
     except Exception as e:  # noqa: BLE001
         print(f"[watchlist] {stock.name}({stock.ticker}) 조회 실패: {e}")

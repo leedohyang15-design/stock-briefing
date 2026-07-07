@@ -45,6 +45,13 @@ def _sign(v: float) -> str:
     return "+" if v > 0 else ""
 
 
+def _stock_price(s) -> str:
+    """종목 가격 표기: 국내(.KS/.KQ)는 '원', 해외(미장)는 '$'."""
+    if s.ticker.endswith((".KS", ".KQ")):
+        return f"{s.close:,.0f}원"
+    return f"${s.close:,.2f}"
+
+
 def _fmt_index(q) -> str:
     unit = "원" if q.group == "환율" else ""
     return f"{q.name} {q.value:,.2f}{unit} ({q.arrow} {_sign(q.change_pct)}{q.change_pct:.2f}%)"
@@ -126,7 +133,7 @@ def build_text(b: Briefing) -> str:
             L.append(f"{g.emoji} {g.name} 섹터 ({g.label})")
             for s in g.stocks:
                 reason = f" · {s.reason}" if s.reason else ""
-                L.append(f"- {s.name}: {s.close:,}원 ({_sign(s.change_pct)}{s.change_pct:.2f}%){reason}")
+                L.append(f"- {s.name}: {_stock_price(s)} ({_sign(s.change_pct)}{s.change_pct:.2f}%){reason}")
             if g.summary:
                 L.append(f"💬 요약: {g.summary}")
     else:
@@ -197,7 +204,7 @@ def build_html(b: Briefing) -> str:
     for g in b.theme_groups:
         col = _sector_color(g.label, g.avg_change)
         stock_lis = "".join(
-            f"<li style='margin:4px 0;'>{_esc(s.name)}: {s.close:,}원 "
+            f"<li style='margin:4px 0;'>{_esc(s.name)}: {_stock_price(s)} "
             f"<span style='color:{'#e03131' if s.change_pct>0 else ('#1c7ed6' if s.change_pct<0 else '#868e96')};'>"
             f"({_sign(s.change_pct)}{s.change_pct:.2f}%)</span>"
             + (f"<span style='color:#888;font-size:12px;'> · {_esc(s.reason)}</span>" if s.reason else "")

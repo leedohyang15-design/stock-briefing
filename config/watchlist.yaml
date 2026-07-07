@@ -2,7 +2,9 @@
 #
 # 관심 테마와 종목을 여기서 직접 관리합니다. (잡주 대신 엄선한 우량주)
 # 브리핑은 매일 '그날 강한 섹터 순서'로 정렬해 보여줍니다.
-#   ticker 는 yfinance 형식: KOSPI=6자리.KS, KOSDAQ=6자리.KQ
+#   ticker 는 yfinance 형식:
+#     - 국내: KOSPI=6자리.KS, KOSDAQ=6자리.KQ  → 원화(원) 표시
+#     - 해외(미장): 티커만 (예: NVDA, TSLA)     → 달러($) 표시
 #   emoji 는 섹션 제목 앞에 붙는 아이콘입니다.
 
 themes:
@@ -12,6 +14,8 @@ themes:
       - { name: "삼성전자",         ticker: "005930.KS" }
       - { name: "SK하이닉스",       ticker: "000660.KS" }
       - { name: "한미반도체",       ticker: "042700.KS" }
+      - { name: "엔비디아",         ticker: "NVDA" }
+      - { name: "브로드컴",         ticker: "AVGO" }
 
   - name: "우주·방산"
     emoji: "🚀"
@@ -19,6 +23,8 @@ themes:
       - { name: "한화에어로스페이스", ticker: "012450.KS" }
       - { name: "LIG넥스원",        ticker: "079550.KS" }
       - { name: "한국항공우주",      ticker: "047810.KS" }
+      - { name: "RTX(레이시온)",     ticker: "RTX" }
+      - { name: "록히드마틴",        ticker: "LMT" }
 
   - name: "2차전지"
     emoji: "🔋"
@@ -26,6 +32,7 @@ themes:
       - { name: "LG에너지솔루션",    ticker: "373220.KS" }
       - { name: "에코프로비엠",      ticker: "247540.KQ" }
       - { name: "포스코퓨처엠",      ticker: "003670.KS" }
+      - { name: "앨버말",           ticker: "ALB" }
 
   - name: "바이오·제약"
     emoji: "💊"
@@ -33,6 +40,8 @@ themes:
       - { name: "삼성바이오로직스",  ticker: "207940.KS" }
       - { name: "셀트리온",         ticker: "068270.KS" }
       - { name: "알테오젠",         ticker: "196170.KQ" }
+      - { name: "일라이릴리",        ticker: "LLY" }
+      - { name: "노보노디스크",      ticker: "NVO" }
 
   - name: "원자력·전력"
     emoji: "🔌"
@@ -40,6 +49,8 @@ themes:
       - { name: "두산에너빌리티",    ticker: "034020.KS" }
       - { name: "HD현대일렉트릭",    ticker: "267260.KS" }
       - { name: "LS ELECTRIC",     ticker: "010120.KS" }
+      - { name: "컨스텔레이션에너지", ticker: "CEG" }
+      - { name: "GE버노바",         ticker: "GEV" }
 
   - name: "자율주행·로봇"
     emoji: "🤖"
@@ -47,6 +58,8 @@ themes:
       - { name: "현대차",           ticker: "005380.KS" }
       - { name: "두산로보틱스",      ticker: "454910.KS" }
       - { name: "레인보우로보틱스",  ticker: "277810.KQ" }
+      - { name: "테슬라",           ticker: "TSLA" }
+      - { name: "모빌아이",         ticker: "MBLY" }
 
   - name: "가상자산·핀테크"
     emoji: "🪙"
@@ -54,3 +67,5 @@ themes:
       - { name: "카카오페이",        ticker: "377300.KS" }
       - { name: "우리기술투자",      ticker: "041190.KQ" }
       - { name: "한화투자증권",      ticker: "003530.KS" }
+      - { name: "코인베이스",        ticker: "COIN" }
+      - { name: "마이크로스트래티지", ticker: "MSTR" }

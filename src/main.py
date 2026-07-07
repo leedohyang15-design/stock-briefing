@@ -15,7 +15,7 @@ from .holidays_kr import (
     previous_trading_day,
     today_kst,
 )
-from . import formatter, kakao, sender, summarizer
+from . import formatter, sender, summarizer
 from .collectors import calendar as cal_collector
 from .collectors import indices, issues, themes, watchlist
 
@@ -70,30 +70,14 @@ def run(force: bool = False) -> int:
     text_body = formatter.build_text(briefing)
     html_body = formatter.build_html(briefing)
 
-    # ── 4. 발송 (이메일 + 카카오 병행, 서로 막지 않음) ─────
-    if not config.has_email and not config.kakao_enabled:
+    # ── 4. 발송 (이메일) ──────────────────────────────────
+    # 카카오톡 '나에게 보내기'는 푸시 알림이 안 떠 확인이 어려워 비활성화함.
+    # (kakao.py 모듈은 남겨둠 — 다시 쓰려면 여기서 send_kakao_memo 를 호출)
+    if not config.has_email:
         raise RuntimeError(
-            "발송 채널이 하나도 설정되지 않았습니다. "
-            "이메일(SMTP_*) 또는 카카오(KAKAO_*) 중 최소 하나를 설정하세요."
+            "이메일 발송 설정이 없습니다. SMTP_USER/SMTP_PASSWORD/MAIL_TO 를 확인하세요."
         )
-
-    if config.has_email:
-        _safe("이메일 발송", lambda: sender.send_email(subject, text_body, html_body), None)
-    else:
-        print("[main] 이메일 미설정 — 이메일 발송 건너뜀.")
-
-    if config.kakao_enabled:
-        kakao_text = formatter.build_kakao_text(briefing)
-        # 메시지 탭 시 Gmail 받은편지함으로 이동 + [메일 보기]/[뉴스 보기] 버튼
-        gmail_url = "https://mail.google.com/mail/u/0/#inbox"
-        buttons = [{"title": "메일 보기", "url": gmail_url}]
-        if top_issues:
-            buttons.append({"title": "뉴스 보기", "url": top_issues[0].url})
-        _safe(
-            "카카오 발송",
-            lambda: kakao.send_kakao_memo(kakao_text, link_url=gmail_url, buttons=buttons),
-            None,
-        )
+    sender.send_email(subject, text_body, html_body)
 
     print("[main] 완료.")
     return 0
