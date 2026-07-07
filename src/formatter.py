@@ -46,6 +46,11 @@ def _sign(v: float) -> str:
     return "+" if v > 0 else ""
 
 
+def _arrow(v: float) -> str:
+    """등락 방향 이모지 — 한눈에 상승/하락 구분."""
+    return "📈" if v > 0 else ("📉" if v < 0 else "➖")
+
+
 def _stock_price(s) -> str:
     """종목 가격 표기: 국내(KRW)는 '원', 해외(USD)는 '$'."""
     if getattr(s, "currency", "KRW") == "USD":
@@ -60,7 +65,7 @@ def _flag(s) -> str:
 
 def _fmt_index(q) -> str:
     unit = "원" if q.group == "환율" else ""
-    return f"{q.name} {q.value:,.2f}{unit} ({q.arrow} {_sign(q.change_pct)}{q.change_pct:.2f}%)"
+    return f"{q.name} {q.value:,.2f}{unit} ({_arrow(q.change_pct)} {_sign(q.change_pct)}{q.change_pct:.2f}%)"
 
 
 def _index_lines(quotes) -> List[str]:
@@ -85,8 +90,8 @@ def _fmt_index_html(q) -> str:
     col = _pct_color(q.change_pct)
     return (
         f"{_esc(q.name)} {q.value:,.2f}{unit} "
-        f"<span style='color:{col};font-weight:600;'>"
-        f"({q.arrow} {_sign(q.change_pct)}{q.change_pct:.2f}%)</span>"
+        f"{_arrow(q.change_pct)} <span style='color:{col};font-weight:700;'>"
+        f"{_sign(q.change_pct)}{q.change_pct:.2f}%</span>"
     )
 
 

@@ -43,14 +43,14 @@ def run(force: bool = False) -> int:
     idx_quotes = _safe("지수/환율", indices.fetch_indices, [])
     big_sectors = _safe("빅 섹터(국내+미국 큐레이션)", watchlist.fetch_theme_groups, [])
     trending_themes, small_movers = _safe(
-        "트렌딩 테마/기타 종목", lambda: hot_sectors.fetch_trending(5, 2, 6), ([], []))
+        "트렌딩 테마/기타 종목", lambda: hot_sectors.fetch_trending(3, 2, 6), ([], []))
     top_issues = _safe("주요 이슈", lambda: issues.fetch_top_issues(3), [])
     cal_events = _safe("일정/리스크", lambda: cal_collector.fetch_calendar(today), [])
 
     # ── 2. 요약 (LLM 또는 폴백) ───────────────────────────
     indices_comment = summarizer.summarize_indices_comment(indices.to_plain_lines(idx_quotes))
-    _safe("빅 섹터 원인분석", lambda: summarizer.annotate_theme_summaries(big_sectors), None)
-    _safe("트렌딩 원인분석", lambda: summarizer.annotate_theme_summaries(trending_themes), None)
+    _safe("빅 섹터 원인분석", lambda: summarizer.annotate_theme_summaries(big_sectors, flavor="big"), None)
+    _safe("트렌딩 원인분석", lambda: summarizer.annotate_theme_summaries(trending_themes, flavor="trending"), None)
     # 빅 섹터 종목 + 기타 강세 종목의 개별 원인을 1회 호출로 채움
     _movers_group = ThemeGroup(name="기타 강세", emoji="💡", stocks=small_movers)
     _safe("종목별 등락 원인", lambda: summarizer.annotate_stock_reasons(big_sectors + [_movers_group]), None)

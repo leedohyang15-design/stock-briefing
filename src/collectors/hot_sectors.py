@@ -119,7 +119,7 @@ def _merge_overlaps(themes: List[_RawTheme]) -> List[_RawTheme]:
     return merged
 
 
-def fetch_trending(themes_n: int = 5, per_sector: int = 2,
+def fetch_trending(themes_n: int = 3, per_sector: int = 2,
                    movers_n: int = 6) -> Tuple[List[ThemeGroup], List[Stock]]:
     """실시간 핫테마를 (트렌딩 테마 목록, 기타 강세 종목 목록)으로 반환.
 
