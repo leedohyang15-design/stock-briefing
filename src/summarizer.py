@@ -77,8 +77,22 @@ def _client() -> Optional["_LLM"]:
     return llm if llm._client is not None else None
 
 
+# Gemini 무료 등급은 분당 5회(5 RPM) 제한이 있어, 연속 호출이 몰리면 429 로 실패한다.
+# 호출 사이에 최소 간격을 둬 한도를 넘지 않게 한다. (하루 1회 실행이라 지연은 무의미)
+import time as _time
+
+_last_llm_call = [0.0]
+_MIN_GAP_SEC = 13.0  # 60초 / 5회 = 12초 → 여유 두어 13초
+
+
 def _complete(client: "_LLM", prompt: str, max_tokens: int = 400) -> Optional[str]:
-    return client.complete(prompt, max_tokens)
+    if client.provider == "gemini":
+        gap = _MIN_GAP_SEC - (_time.time() - _last_llm_call[0])
+        if gap > 0:
+            _time.sleep(gap)
+    out = client.complete(prompt, max_tokens)
+    _last_llm_call[0] = _time.time()
+    return out
 
 
 def _parse_numbered(out: str) -> Dict[int, str]:
@@ -114,9 +128,9 @@ def summarize_indices_comment(plain_lines: List[str]) -> str:
     return "간밤 지수 흐름을 참고해 오늘 시장 대응에 유의하세요."
 
 
-# ── 섹션 2: 테마 그룹별 흐름 요약 (💬 요약) ────────────────
+# ── 섹션 2: 테마 그룹별 원인 분석 (🔍 원인 분석) ──────────
 def annotate_theme_summaries(groups) -> None:
-    """각 ThemeGroup 의 .summary 를 채운다 (섹터 흐름/원인 1줄). 실패 시 None 유지."""
+    """각 ThemeGroup 의 .summary 를 '원인 분석'으로 채운다. 실패 시 None 유지."""
     client = _client()
     if not client or not groups:
         return
@@ -126,14 +140,17 @@ def annotate_theme_summaries(groups) -> None:
         for i, g in enumerate(groups)
     )
     prompt = (
-        "다음은 테마별 주요 종목의 전일 등락률이다.\n"
+        "다음은 테마별 주요 종목(국내·해외)의 전일 등락률이다.\n"
         f"{listing}\n\n"
-        f"각 테마가 왜 그렇게 움직였는지(강세/약세/혼조 원인) 개인 투자자 눈높이에서 "
-        f"'한 줄'로 분석하라. 반드시 테마 수({len(groups)}개)만큼 '번호. 원인' 형태로만 "
-        "줄바꿈해 출력하라. 매수/매도 권유는 하지 말 것.\n"
-        "예)\n1. 엔비디아 공급망 호재로 외국인 순매수 유입\n2. 유럽향 수출 모멘텀에 방산주 강세"
+        "각 테마가 '왜' 그렇게 오르거나 내렸는지 원인을 분석하라. "
+        "국내외 수급·정책·실적·매크로(금리·환율)·업황 등 핵심 동인을 짚어 "
+        "개인 투자자가 이해하기 쉽게 2문장으로 설명하라. "
+        f"반드시 테마 수({len(groups)}개)만큼 '번호. 분석내용' 형태로 줄바꿈해 출력하고, "
+        "각 문장은 절대 도중에 끊지 말고 완결된 문장으로 마무리하라. 매수/매도 권유는 금지.\n"
+        "예)\n1. 엔비디아 실적 호조에 국내 반도체까지 온기가 확산됐고, 외국인 순매수가 지수를 끌어올렸다.\n"
+        "2. 유럽 방산 수출 기대가 이어지는 가운데 미국 방산주도 수주 모멘텀에 동반 강세를 보였다."
     )
-    out = _complete(client, prompt, max_tokens=600)
+    out = _complete(client, prompt, max_tokens=2000)
     if not out:
         return
     causes = _parse_numbered(out)
@@ -163,7 +180,7 @@ def annotate_stock_reasons(groups) -> None:
         "줄바꿈해 출력하라. 확실치 않으면 '테마 동반 등락'·'보합권 등락' 정도로 신중히 쓰고, "
         "매수/매도 권유는 하지 말 것.\n예)\n1. 실적 기대에 강세\n2. 차익실현 매물 출회"
     )
-    out = _complete(client, prompt, max_tokens=1200)
+    out = _complete(client, prompt, max_tokens=1500)
     if not out:
         return
     reasons = _parse_numbered(out)

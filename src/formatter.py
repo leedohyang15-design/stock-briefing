@@ -93,7 +93,7 @@ def _index_html_blocks(quotes) -> str:
         if not qs:
             continue
         rows = "".join(
-            f"<div style='margin:2px 0;white-space:nowrap;'>{_fmt_index_html(q)}</div>"
+            f"<div style='margin:2px 0;'>{_fmt_index_html(q)}</div>"
             for q in qs
         )
         out.append(
@@ -135,7 +135,7 @@ def build_text(b: Briefing) -> str:
                 reason = f" · {s.reason}" if s.reason else ""
                 L.append(f"- {s.name}: {_stock_price(s)} ({_sign(s.change_pct)}{s.change_pct:.2f}%){reason}")
             if g.summary:
-                L.append(f"💬 요약: {g.summary}")
+                L.append(f"🔍 원인 분석: {g.summary}")
     else:
         L.append("- 데이터 없음")
     L.append("")
@@ -212,8 +212,9 @@ def build_html(b: Briefing) -> str:
             for s in g.stocks
         )
         summary_html = (
-            f"<div style='color:#555;font-size:13px;margin:6px 0 0;background:#f8f9fa;"
-            f"padding:8px 10px;border-radius:6px;'>💬 <b>요약</b> · {_esc(g.summary)}</div>"
+            f"<div style='color:#444;font-size:13px;line-height:1.55;margin:8px 0 0;"
+            f"background:#f1f5f9;border-left:3px solid #2b6cb0;padding:9px 11px;border-radius:6px;'>"
+            f"🔍 <b>원인 분석</b><br>{_esc(g.summary)}</div>"
             if g.summary else ""
         )
         sector_blocks.append(
