@@ -25,6 +25,7 @@ class Briefing:
     indices_comment: str            # 섹션 1 💡 관전 포인트
     theme_groups: list              # 섹션 2 (ThemeGroup: .name/.emoji/.stocks/.label/.summary)
     hot_themes: list = field(default_factory=list)  # 섹션 2 상단 🌟 기타 급등 테마 (HotTheme)
+    us_trending: list = field(default_factory=list)  # 섹션 2 하단 🌎 미국 인기검색 종목 (Stock)
     issues: list = field(default_factory=list)   # 섹션 3 (Issue: .title/.url)
     calendar_summary: str = ""      # 섹션 4
 
@@ -46,10 +47,10 @@ def _sign(v: float) -> str:
 
 
 def _stock_price(s) -> str:
-    """종목 가격 표기: 국내(.KS/.KQ)는 '원', 해외(미장)는 '$'."""
-    if s.ticker.endswith((".KS", ".KQ")):
-        return f"{s.close:,.0f}원"
-    return f"${s.close:,.2f}"
+    """종목 가격 표기: 국내(KRW)는 '원', 해외(USD)는 '$'."""
+    if getattr(s, "currency", "KRW") == "USD":
+        return f"${s.close:,.2f}"
+    return f"{s.close:,.0f}원"
 
 
 def _fmt_index(q) -> str:
@@ -138,6 +139,11 @@ def build_text(b: Briefing) -> str:
                 L.append(f"🔍 원인 분석: {g.summary}")
     else:
         L.append("- 데이터 없음")
+    if b.us_trending:
+        L.append("")
+        L.append("🌎 미국 인기검색 종목 (실시간)")
+        for s in b.us_trending:
+            L.append(f"- {s.name}: {_stock_price(s)} ({_sign(s.change_pct)}{s.change_pct:.2f}%)")
     L.append("")
     L.append("📰 [3] 전일 주요 이슈 & 뉴스")
     if b.issues:
@@ -243,6 +249,23 @@ def build_html(b: Briefing) -> str:
         )
     hot_html = "".join(hot_blocks)
 
+    # 섹션 2 하단: 🌎 미국 인기검색 종목 (실시간 트렌딩)
+    if b.us_trending:
+        us_lis = "".join(
+            f"<li style='margin:4px 0;'>{_esc(s.name)}: {_stock_price(s)} "
+            f"<span style='color:{'#e03131' if s.change_pct>0 else ('#1c7ed6' if s.change_pct<0 else '#868e96')};'>"
+            f"({_sign(s.change_pct)}{s.change_pct:.2f}%)</span></li>"
+            for s in b.us_trending
+        )
+        us_html = (
+            "<div style='margin:18px 0 4px;padding-top:10px;border-top:1px dashed #ccc;'>"
+            "<div style='font-size:15px;font-weight:bold;margin-bottom:6px;'>🌎 미국 인기검색 종목 "
+            "<span style='color:#888;font-size:12px;font-weight:normal;'>(실시간 트렌딩)</span></div>"
+            f"<ul style='padding-left:18px;margin:0;color:#333;line-height:1.5;font-size:14px;'>{us_lis}</ul></div>"
+        )
+    else:
+        us_html = ""
+
     # 섹션 3
     if b.issues:
         issue_html = "".join(
@@ -273,9 +296,10 @@ def build_html(b: Briefing) -> str:
     💡 {_nl2br(b.indices_comment)}</div>
 
   {h2("🔥 [2] 오늘의 주도 섹터 &amp; 주목 종목")}
-  <div style="color:#888;font-size:13px;">시장을 이끈 핵심 테마와 주요 종목의 흐름입니다. (그날 강한 섹터 순)</div>
+  <div style="color:#888;font-size:13px;">그날 실시간 급등 테마 순으로 정렬한 핵심 섹터·종목입니다.</div>
   {hot_html}
   {sector_html}
+  {us_html}
 
   {h2("📰 [3] 전일 주요 이슈 &amp; 뉴스")}
   <ul style="padding-left:18px;margin:0;line-height:1.5;">{issue_html}</ul>

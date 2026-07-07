@@ -17,7 +17,7 @@ from .holidays_kr import (
 )
 from . import formatter, sender, summarizer
 from .collectors import calendar as cal_collector
-from .collectors import indices, issues, themes, watchlist
+from .collectors import hot_sectors, indices, issues
 
 
 def _safe(label, fn, default):
@@ -40,19 +40,15 @@ def run(force: bool = False) -> int:
 
     # ── 1. 수집 (부분 실패 허용) ──────────────────────────
     idx_quotes = _safe("지수/환율", indices.fetch_indices, [])
-    theme_groups = _safe("주도 섹터·주목 종목", watchlist.fetch_theme_groups, [])
-    _watch_names = {s.name for g in theme_groups for s in g.stocks}
-    hot_themes = _safe(
-        "기타 급등 테마", lambda: themes.fetch_hot_extra_themes(2, exclude_stocks=_watch_names), []
-    )
+    theme_groups = _safe("실시간 핫섹터", lambda: hot_sectors.fetch_hot_sectors(7, 2), [])
+    us_trending = _safe("미국 인기검색 종목", lambda: hot_sectors.fetch_trending_us(5), [])
     top_issues = _safe("주요 이슈", lambda: issues.fetch_top_issues(3), [])
     cal_events = _safe("일정/리스크", lambda: cal_collector.fetch_calendar(today), [])
 
     # ── 2. 요약 (LLM 또는 폴백) ───────────────────────────
     indices_comment = summarizer.summarize_indices_comment(indices.to_plain_lines(idx_quotes))
-    _safe("테마 요약", lambda: summarizer.annotate_theme_summaries(theme_groups), None)
+    _safe("섹터 원인 분석", lambda: summarizer.annotate_theme_summaries(theme_groups), None)
     _safe("종목별 등락 원인", lambda: summarizer.annotate_stock_reasons(theme_groups), None)
-    _safe("급등 테마 원인", lambda: summarizer.annotate_hot_theme_causes(hot_themes), None)
     calendar_summary = summarizer.summarize_calendar(cal_collector.to_plain_lines(cal_events))
 
     # ── 3. 포맷 ───────────────────────────────────────────
@@ -62,7 +58,7 @@ def run(force: bool = False) -> int:
         index_quotes=idx_quotes,
         indices_comment=indices_comment,
         theme_groups=theme_groups,
-        hot_themes=hot_themes,
+        us_trending=us_trending,
         issues=top_issues,
         calendar_summary=calendar_summary,
     )

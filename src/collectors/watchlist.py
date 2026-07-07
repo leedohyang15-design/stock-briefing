@@ -28,6 +28,7 @@ class Stock:
     close: Optional[float] = None
     change_pct: Optional[float] = None
     reason: Optional[str] = None  # summarizer 가 채우는 종목별 등락 원인 1줄
+    currency: str = "KRW"         # 표시 통화: "KRW"(원) | "USD"($)
 
     @property
     def ok(self) -> bool:
@@ -40,6 +41,7 @@ class ThemeGroup:
     emoji: str
     stocks: List[Stock] = field(default_factory=list)
     summary: Optional[str] = None  # summarizer 가 채우는 급등/흐름 원인 1줄
+    headline_pct: Optional[float] = None  # 테마 자체 등락률(핫테마 소스). 있으면 label 에 우선 사용
 
     @property
     def avg_change(self) -> float:
@@ -54,6 +56,8 @@ class ThemeGroup:
     @property
     def label(self) -> str:
         """섹터 헤더에 붙는 등락 표기 ('+3.20%' / '-1.10%' / '혼조세')."""
+        if self.headline_pct is not None:  # 핫테마: 테마 자체 등락률을 표시
+            return f"{'+' if self.headline_pct >= 0 else ''}{self.headline_pct:.2f}%"
         if self.is_mixed:
             return "혼조세"
         a = self.avg_change

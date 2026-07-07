@@ -28,6 +28,11 @@ class CalendarEvent:
     title: str
     category: str  # "매크로" | "락업해제" | "기타"
     note: Optional[str] = None
+    days_until: int = 0  # 오늘로부터 며칠 뒤 (0=오늘)
+
+    @property
+    def dlabel(self) -> str:
+        return "오늘" if self.days_until == 0 else f"D-{self.days_until}"
 
 
 def _match_recurring(rule: dict, day: dt.date) -> bool:
@@ -53,8 +58,11 @@ def _match_recurring(rule: dict, day: dt.date) -> bool:
     return True
 
 
+_LOOKAHEAD_DAYS = 7  # 오늘 포함 향후 며칠까지 미리 보여줄지
+
+
 def fetch_macro_events(day: Optional[dt.date] = None) -> List[CalendarEvent]:
-    """yaml 에서 오늘 날짜에 해당하는 매크로 일정을 반환."""
+    """오늘부터 향후 _LOOKAHEAD_DAYS 일 내의 매크로 일정을 D-n 과 함께 반환."""
     day = day or today_kst()
     events: List[CalendarEvent] = []
     if not os.path.exists(_CONFIG_PATH):
@@ -67,29 +75,35 @@ def fetch_macro_events(day: Optional[dt.date] = None) -> List[CalendarEvent]:
         print(f"[calendar] yaml 파싱 실패: {e}")
         return events
 
+    window = [day + dt.timedelta(days=n) for n in range(_LOOKAHEAD_DAYS + 1)]
+
     # 1) 고정일 이벤트: {date: 2026-07-10, title: ...}
     for item in data.get("fixed", []) or []:
         try:
             d = item["date"]
             if isinstance(d, str):
                 d = dt.date.fromisoformat(d)
-            if d == day:
-                events.append(
-                    CalendarEvent(title=item["title"], category="매크로", note=item.get("note"))
-                )
+            if d in window:
+                events.append(CalendarEvent(
+                    title=item["title"], category="매크로",
+                    note=item.get("note"), days_until=(d - day).days))
         except Exception as e:  # noqa: BLE001
             print(f"[calendar] fixed 항목 처리 실패: {e}")
 
-    # 2) 반복 이벤트: {title: ..., recurring: {...}}
+    # 2) 반복 이벤트: {title: ..., recurring: {...}} — 창(window) 내 첫 매칭일만
     for item in data.get("recurring", []) or []:
         try:
-            if _match_recurring(item.get("recurring", {}), day):
-                events.append(
-                    CalendarEvent(title=item["title"], category="매크로", note=item.get("note"))
-                )
+            rule = item.get("recurring", {})
+            for d in window:
+                if _match_recurring(rule, d):
+                    events.append(CalendarEvent(
+                        title=item["title"], category="매크로",
+                        note=item.get("note"), days_until=(d - day).days))
+                    break  # 창 내 가장 가까운 1회만
         except Exception as e:  # noqa: BLE001
             print(f"[calendar] recurring 항목 처리 실패: {e}")
 
+    events.sort(key=lambda e: e.days_until)  # 가까운 일정 먼저
     return events
 
 
@@ -114,7 +128,7 @@ def fetch_calendar(day: Optional[dt.date] = None) -> List[CalendarEvent]:
 def to_plain_lines(events: List[CalendarEvent]) -> List[str]:
     lines = []
     for e in events:
-        line = f"[{e.category}] {e.title}"
+        line = f"[{e.dlabel}] {e.title}"
         if e.note:
             line += f" — {e.note}"
         lines.append(line)
