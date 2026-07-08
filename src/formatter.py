@@ -63,6 +63,17 @@ def _flag(s) -> str:
     return "🇺🇸" if getattr(s, "currency", "KRW") == "USD" else "🇰🇷"
 
 
+def _pct_html(v: float) -> str:
+    """📈/📉 이모지 + 색상 등락률 (HTML)."""
+    return (f"{_arrow(v)} <span style='color:{_pct_color(v)};font-weight:600;'>"
+            f"{_sign(v)}{v:.2f}%</span>")
+
+
+def _pct_text(v: float) -> str:
+    """📈/📉 이모지 + 등락률 (텍스트)."""
+    return f"{_arrow(v)} {_sign(v)}{v:.2f}%"
+
+
 def _fmt_index(q) -> str:
     unit = "원" if q.group == "환율" else ""
     return f"{q.name} {q.value:,.2f}{unit} ({_arrow(q.change_pct)} {_sign(q.change_pct)}{q.change_pct:.2f}%)"
@@ -140,7 +151,7 @@ def build_text(b: Briefing) -> str:
             L.append(f"{g.emoji} {g.name} ({g.label})")
             for s in g.stocks:
                 reason = f" · {s.reason}" if s.reason else ""
-                L.append(f"- {_flag(s)} {s.name}: {_stock_price(s)} ({_sign(s.change_pct)}{s.change_pct:.2f}%){reason}")
+                L.append(f"- {_flag(s)} {s.name}: {_stock_price(s)} {_pct_text(s.change_pct)}{reason}")
             if g.summary:
                 L.append(f"💬 이유 & 관전 포인트: {g.summary}")
     else:
@@ -149,7 +160,7 @@ def build_text(b: Briefing) -> str:
         L.append("")
         L.append("⚡ 당일 트렌딩 스몰 섹션 (단기 이슈/테마)")
         for g in b.trending_themes:
-            members = ", ".join(f"{s.name} {_sign(s.change_pct)}{s.change_pct:.2f}%" for s in g.stocks)
+            members = ", ".join(f"{s.name} {_pct_text(s.change_pct)}" for s in g.stocks)
             L.append(f"{g.emoji} {g.name} ({g.label}) — {members}")
             if g.summary:
                 L.append(f"  💬 {g.summary}")
@@ -158,7 +169,7 @@ def build_text(b: Briefing) -> str:
         L.append("💡 기타 당일 강세 종목 (단기 급등·소형주)")
         for s in b.small_movers:
             reason = f" · {s.reason}" if s.reason else ""
-            L.append(f"- {_flag(s)} {s.name}: {_stock_price(s)} ({_sign(s.change_pct)}{s.change_pct:.2f}%){reason}")
+            L.append(f"- {_flag(s)} {s.name}: {_stock_price(s)} {_pct_text(s.change_pct)}{reason}")
     L.append("")
     L.append("📰 [3] 전일 주요 이슈 & 뉴스")
     if b.issues:
@@ -220,16 +231,12 @@ def build_html(b: Briefing) -> str:
     # 섹션 1 (그룹 라벨 + 종목당 한 줄, 등락률 색상)
     idx_html = _index_html_blocks(b.index_quotes)
 
-    def _pct_span(v: float) -> str:
-        c = _pct_color(v)
-        return f"<span style='color:{c};font-weight:600;'>({_sign(v)}{v:.2f}%)</span>"
-
     # 섹션 2-A · 🏢 시장 주도 빅 섹션 (국내+미국 큐레이션)
     big_blocks = []
     for g in b.theme_groups:
         col = _sector_color(g.label, g.avg_change)
         stock_lis = "".join(
-            f"<li style='margin:4px 0;'>{_flag(s)} {_esc(s.name)}: {_stock_price(s)} {_pct_span(s.change_pct)}"
+            f"<li style='margin:4px 0;'>{_flag(s)} {_esc(s.name)}: {_stock_price(s)} {_pct_html(s.change_pct)}"
             + (f"<span style='color:#888;font-size:12px;'> · {_esc(s.reason)}</span>" if s.reason else "")
             + "</li>"
             for s in g.stocks
@@ -252,7 +259,7 @@ def build_html(b: Briefing) -> str:
     # 섹션 2-B · ⚡ 당일 트렌딩 스몰 섹션 (실시간 네이버 핫테마)
     trend_blocks = []
     for g in b.trending_themes:
-        members = " · ".join(f"{_esc(s.name)} {_pct_span(s.change_pct)}" for s in g.stocks)
+        members = " · ".join(f"{_esc(s.name)} {_pct_html(s.change_pct)}" for s in g.stocks)
         cause = (f"<div style='color:#8a6d00;font-size:12px;margin-top:3px;'>💬 {_esc(g.summary)}</div>"
                  if g.summary else "")
         trend_blocks.append(
@@ -270,7 +277,7 @@ def build_html(b: Briefing) -> str:
     # 섹션 2-C · 💡 기타 당일 강세 종목 (상한가성 소형주)
     if b.small_movers:
         mover_lis = "".join(
-            f"<li style='margin:3px 0;'>{_flag(s)} {_esc(s.name)}: {_stock_price(s)} {_pct_span(s.change_pct)}"
+            f"<li style='margin:3px 0;'>{_flag(s)} {_esc(s.name)}: {_stock_price(s)} {_pct_html(s.change_pct)}"
             + (f"<span style='color:#888;font-size:12px;'> · {_esc(s.reason)}</span>" if s.reason else "")
             + "</li>"
             for s in b.small_movers

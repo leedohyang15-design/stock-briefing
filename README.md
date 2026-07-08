@@ -157,11 +157,16 @@ python -m src.main --force
 
 ## ⏰ 스케줄 & 휴장일 처리
 
-- cron `35 23 * * 0-4` → 일~목 23:35 UTC = **월~금 08:35 KST** (아침 9시 전후 도착 목표).
-- **GitHub Actions cron 은 '정시(:00)'에 부하가 몰려 크게 지연됩니다.** 그래서 정시를 피한
-  08:35 로 잡아 지연을 흡수합니다. 그래도 무료 cron 은 최선 노력(best-effort)이라 수 분~수십 분
-  지연될 수 있어요. **정확한 정시 도착이 꼭 필요하면** 외부 스케줄러(cron-job.org 등)로
-  `repository_dispatch` 를 트리거하는 방식을 검토하세요.
+- cron `5 22 * * 0-4` → 일~목 22:05 UTC = **월~금 07:05 KST** (장 시작 전 이른 아침 도착 목표).
+- **GitHub Actions 무료 cron 은 러너 부하 시 수십 분~수 시간까지 지연될 수 있습니다.** 그래서
+  목표를 07시로 당겨 지연을 흡수합니다. **그래도 계속 크게 늦으면**(예: 오후 도착) 외부 스케줄러로
+  정시에 트리거하세요:
+  1. [cron-job.org](https://cron-job.org) 무료 가입
+  2. GitHub → Settings → Developer settings → **Personal access token**(repo 권한) 발급
+  3. cron-job.org 에서 매 평일 원하는 시각에 아래 요청 예약:
+     `POST https://api.github.com/repos/<사용자>/stock-briefing/dispatches`
+     헤더 `Authorization: Bearer <PAT>`, 본문 `{"event_type":"run-briefing"}`
+  - 워크플로우가 `repository_dispatch: run-briefing` 도 받도록 돼 있어 정시에 실행됩니다.
 - **한국 공휴일 휴장일**은 `src/holidays_kr.py` 가 판정해 자동으로 발송을 건너뜁니다.
   임시 공휴일·대체휴일 등 일회성 휴장일이 생기면 `holidays_kr.py` 의
   `_KRX_EXTRA_DATES` 에 추가하세요.

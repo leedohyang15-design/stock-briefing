@@ -1,16 +1,16 @@
 name: Daily Stock Briefing
 
-# 평일(월~금) 아침 KST 09시 전후 도착을 목표로 실행.
-#   cron 23:35 UTC (일~목) = 08:35 KST (월~금)
-#   → GitHub Actions 예약은 '정시(:00)'에 부하가 몰려 크게 지연되므로,
-#     정시를 피한 08:35 목표로 잡아 지연을 흡수해 9시 전후에 도착하도록 함.
-#   ※ GitHub 무료 cron 은 '최선 노력(best-effort)'이라 수 분~수십 분 지연될 수 있음.
-#      정확한 정시 도착이 꼭 필요하면 외부 스케줄러(cron-job.org 등)로
-#      repository_dispatch 를 트리거하는 방식을 검토.
+# 평일(월~금) 이른 아침(KST) 도착을 목표로 실행.
+#   cron 22:05 UTC (일~목) = 07:05 KST (월~금) — 장 시작(09시) 훨씬 전에 도착하도록 앞당김.
+#   ※ GitHub 무료 cron 은 '최선 노력'이라 러너 부하 시 수십 분~수 시간까지 지연될 수 있음.
+#     그래서 목표를 07시로 당겨 지연을 흡수함. 그래도 계속 크게 늦으면
+#     외부 스케줄러(cron-job.org 등)로 repository_dispatch 를 쏘는 방식이 확실함(README 참고).
 # 한국 공휴일 휴장일 스킵은 코드(src/holidays_kr.py)가 담당한다.
 on:
   schedule:
-    - cron: "35 23 * * 0-4"
+    - cron: "5 22 * * 0-4"
+  repository_dispatch:      # 외부 스케줄러(cron-job.org 등)로 정시 트리거용
+    types: [run-briefing]
   workflow_dispatch:      # 수동 실행(테스트) 지원
     inputs:
       force:
