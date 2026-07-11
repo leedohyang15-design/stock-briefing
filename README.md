@@ -157,16 +157,42 @@ python -m src.main --force
 
 ## ⏰ 스케줄 & 휴장일 처리
 
-- cron `5 22 * * 0-4` → 일~목 22:05 UTC = **월~금 07:05 KST** (장 시작 전 이른 아침 도착 목표).
-- **GitHub Actions 무료 cron 은 러너 부하 시 수십 분~수 시간까지 지연될 수 있습니다.** 그래서
-  목표를 07시로 당겨 지연을 흡수합니다. **그래도 계속 크게 늦으면**(예: 오후 도착) 외부 스케줄러로
-  정시에 트리거하세요:
-  1. [cron-job.org](https://cron-job.org) 무료 가입
-  2. GitHub → Settings → Developer settings → **Personal access token**(repo 권한) 발급
-  3. cron-job.org 에서 매 평일 원하는 시각에 아래 요청 예약:
-     `POST https://api.github.com/repos/<사용자>/stock-briefing/dispatches`
-     헤더 `Authorization: Bearer <PAT>`, 본문 `{"event_type":"run-briefing"}`
-  - 워크플로우가 `repository_dispatch: run-briefing` 도 받도록 돼 있어 정시에 실행됩니다.
+### ✅ 권장: 외부 스케줄러로 정시 발송 (cron-job.org, 무료)
+
+> **GitHub Actions 무료 cron 은 러너 부하 시 수십 분~수 시간(때론 반나절)까지 지연됩니다.**
+> 시각을 당겨도 지연 폭이 크면 소용이 없습니다. **정확한 시각 발송을 원하면 아래 외부 트리거를 쓰세요.**
+> cron-job.org 가 매 평일 정해진 시각에 GitHub 를 깨우고, 워크플로우는 `repository_dispatch:
+> run-briefing` 를 받아 **지연 없이 즉시** 실행됩니다.
+
+**1) GitHub 토큰(PAT) 발급** — cron-job.org 가 내 리포지토리를 깨울 열쇠
+  - GitHub → 우측 상단 프로필 → **Settings** → 맨 아래 **Developer settings**
+    → **Personal access tokens** → **Fine-grained tokens** → **Generate new token**
+  - **Repository access**: *Only select repositories* → `stock-briefing` 선택
+  - **Permissions** → *Repository permissions* → **Contents: Read and write** (이거 하나면 충분)
+  - Expiration 은 *No expiration*(또는 1년) 권장. 생성된 `github_pat_...` 토큰을 복사해 둡니다.
+
+**2) cron-job.org 에서 예약**
+  - [cron-job.org](https://cron-job.org) 무료 가입 → **Create cronjob**
+  - **URL**: `https://api.github.com/repos/leedohyang15-design/stock-briefing/dispatches`
+  - **Request method**: `POST`
+  - **Headers** (3줄 추가):
+    - `Accept: application/vnd.github+json`
+    - `Authorization: Bearer github_pat_...` ← 1)에서 복사한 토큰
+    - `X-GitHub-Api-Version: 2022-11-28`
+  - **Request body**: `{"event_type":"run-briefing"}`
+  - **Schedule**: *Custom* → 시간대를 **Asia/Seoul** 로 두고 **월~금 07:00** 지정
+    (요일 Mon–Fri, 시 7, 분 0). ※ cron-job.org 은 **KST 그대로** 입력하면 됩니다(UTC 환산 불필요).
+  - 저장 후 **TEST RUN** 버튼으로 즉시 한 번 쏴서 메일이 오는지 확인하세요.
+  - 응답이 `204 No Content` 면 정상입니다. `404` 면 URL·토큰 권한을, `401` 이면 토큰을 다시 확인하세요.
+
+### (보조) GitHub 자체 cron
+
+- 워크플로우엔 `cron: 5 22 * * 0-4` (월~금 07:05 KST 목표)도 그대로 남아 있어,
+  외부 스케줄러를 안 쓰더라도 **지연은 있지만 언젠가는** 발송됩니다(백업용).
+  정시 발송이 중요하면 위 외부 스케줄러를 주 방식으로 쓰세요.
+
+### 휴장일
+
 - **한국 공휴일 휴장일**은 `src/holidays_kr.py` 가 판정해 자동으로 발송을 건너뜁니다.
   임시 공휴일·대체휴일 등 일회성 휴장일이 생기면 `holidays_kr.py` 의
   `_KRX_EXTRA_DATES` 에 추가하세요.
