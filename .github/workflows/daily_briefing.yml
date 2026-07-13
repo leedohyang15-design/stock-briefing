@@ -7,8 +7,6 @@ name: Daily Stock Briefing
 #     외부 스케줄러(cron-job.org 등)로 repository_dispatch 를 쏘는 방식이 확실함(README 참고).
 # 한국 공휴일 휴장일 스킵은 코드(src/holidays_kr.py)가 담당한다.
 on:
-  schedule:
-    - cron: "5 22 * * 0-4"
   repository_dispatch:      # 외부 스케줄러(cron-job.org 등)로 정시 트리거용
     types: [run-briefing]
   workflow_dispatch:      # 수동 실행(테스트) 지원
