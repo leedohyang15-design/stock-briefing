@@ -5,7 +5,7 @@
   🐜 오늘의 개미 체크포인트  (출근길 10초 요약 — 이미 모은 데이터만으로 조립)
   🌐 [1] 마켓 뷰 (지수 & 환율)
   🔥 [2] 오늘의 주도 섹터 & 주목 종목  (테마별 종목 + 흐름 요약)
-       └ 💰 수급 & 거래대금: 거래대금 상위 / 외국인·기관 순매수·순매도 / 개인 순매수
+       └ 💰 수급 & 거래대금: 거래대금 상위 / 외국인·기관 순매수·순매도 (네이버)
   📰 [3] 전일 주요 이슈 & 뉴스  (클릭 가능한 링크)
   🚨 [4] 오늘의 주요 일정 & 리스크
 """
@@ -76,6 +76,11 @@ def _pct_html(v: float) -> str:
 def _eok(v) -> str:
     """원 단위 금액 → '1,234억' 문자열."""
     return f"{(v or 0) / 1e8:,.0f}억"
+
+
+def _amt(v, sign: str) -> str:
+    """금액이 있으면 '(+1,234억)', 없으면 빈 문자열(수량 기준 순매매엔 금액 미표기)."""
+    return f"({sign}{_eok(v)})" if v else ""
 
 def _pct_text(v: float) -> str:
     """📈/📉 이모지 + 등락률 (텍스트)."""
@@ -226,16 +231,16 @@ def build_text(b: Briefing) -> str:
         for label, rows in (b.net_buy or {}).items():
             if rows:
                 L.append(f"· 🟢 {label} 순매수: " + ", ".join(
-                    f"{s.name}(+{_eok(s.trade_value)})" for s in rows))
+                    f"{s.name}{_amt(s.trade_value, '+')}" for s in rows))
         for label, rows in (b.net_sell or {}).items():
             if rows:
                 L.append(f"· 🔴 {label} 순매도: " + ", ".join(
-                    f"{s.name}(-{_eok(s.trade_value)})" for s in rows))
+                    f"{s.name}{_amt(s.trade_value, '-')}" for s in rows))
         if b.retail_net_buy:
             L.append("· 🐜 개인 순매수: " + ", ".join(
-                f"{s.name}(+{_eok(s.trade_value)})" for s in b.retail_net_buy))
-        if b.net_sell and b.retail_net_buy:
-            L.append("  ※ 외국인·기관(스마트머니)이 파는데 개인이 담는 종목은 고점 물림에 특히 주의.")
+                f"{s.name}{_amt(s.trade_value, '+')}" for s in b.retail_net_buy))
+        if any((b.net_buy or {}).values()) and any((b.net_sell or {}).values()):
+            L.append("  ※ 🟢 순매수(스마트머니가 담는 종목)와 🔴 순매도(던지는 종목)가 갈리는 곳은 특히 주의.")
     L.append("")
     L.append("📰 [3] 전일 주요 이슈 & 뉴스")
     if b.issues:
@@ -355,7 +360,10 @@ def build_html(b: Briefing) -> str:
         )
 
     def _flow_row(icon: str, label: str, rows, sign: str) -> str:
-        bits = " · ".join(f"{_esc(s.name)} <b>{sign}{_eok(s.trade_value)}</b>" for s in rows)
+        bits = " · ".join(
+            _esc(s.name) + (f" <b>{sign}{_eok(s.trade_value)}</b>" if s.trade_value else "")
+            for s in rows
+        )
         return (f"<div style='margin-top:8px;font-size:13px;color:#333;'>"
                 f"<span style='color:#555;font-weight:bold;'>{icon} {_esc(label)}</span> {bits}</div>")
 
@@ -369,8 +377,8 @@ def build_html(b: Briefing) -> str:
         flows_parts.append(_flow_row("🐜", "개인 순매수", b.retail_net_buy, "+"))
     caution_html = (
         "<div style='margin-top:10px;font-size:12px;color:#a33;line-height:1.5;'>"
-        "※ 외국인·기관(스마트머니)이 파는데 개인이 담는 종목은 고점 물림에 특히 주의하세요.</div>"
-        if (b.net_sell and b.retail_net_buy) else ""
+        "※ 🟢 순매수(스마트머니가 담는 종목)와 🔴 순매도(던지는 종목)가 갈리는 곳은 특히 주의하세요.</div>"
+        if (any((b.net_buy or {}).values()) and any((b.net_sell or {}).values())) else ""
     )
     flows_html = (
         "<div style='margin-top:16px;padding:10px 12px;background:#f1f5f9;border-radius:8px;'>"

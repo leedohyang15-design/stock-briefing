@@ -47,8 +47,8 @@ def run(force: bool = False) -> int:
     top_issues = _safe("주요 이슈", lambda: issues.fetch_top_issues(3), [])
     cal_events = _safe("일정/리스크", lambda: cal_collector.fetch_calendar(today), [])
     value_top = _safe("거래대금 상위", lambda: flows.fetch_trading_value_top(trade_day, 5), [])
-    # 외국인·기관·개인 수급 (순매수·순매도) 을 한 묶음으로
-    flow_data = _safe("투자자 수급(외국인·기관·개인)",
+    # 외국인·기관 순매매(순매수·순매도) 상위 (네이버 frgn)
+    flow_data = _safe("투자자 순매매(외국인·기관)",
                       lambda: flows.fetch_investor_flows(trade_day, 3), {})
     net_buy = flow_data.get("buy", {})
     net_sell = flow_data.get("sell", {})
