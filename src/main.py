@@ -17,7 +17,7 @@ from .holidays_kr import (
 )
 from . import formatter, sender, summarizer
 from .collectors import calendar as cal_collector
-from .collectors import hot_sectors, indices, issues, watchlist
+from .collectors import flows, hot_sectors, indices, issues, watchlist
 from .collectors.watchlist import ThemeGroup
 
 
@@ -46,6 +46,8 @@ def run(force: bool = False) -> int:
         "트렌딩 테마/기타 종목", lambda: hot_sectors.fetch_trending(3, 2, 6), ([], []))
     top_issues = _safe("주요 이슈", lambda: issues.fetch_top_issues(3), [])
     cal_events = _safe("일정/리스크", lambda: cal_collector.fetch_calendar(today), [])
+    value_top = _safe("거래대금 상위", lambda: flows.fetch_trading_value_top(trade_day, 5), [])
+    net_buy = _safe("투자자 순매수", lambda: flows.fetch_investor_net_buy(trade_day, 3), {})
 
     # ── 2. 요약 (LLM 또는 폴백) ───────────────────────────
     indices_comment = summarizer.summarize_indices_comment(indices.to_plain_lines(idx_quotes))
@@ -67,6 +69,8 @@ def run(force: bool = False) -> int:
         small_movers=small_movers,
         issues=top_issues,
         calendar_summary=calendar_summary,
+        value_top=value_top,
+        net_buy=net_buy,
     )
     subject = formatter.build_subject(briefing)
     text_body = formatter.build_text(briefing)
