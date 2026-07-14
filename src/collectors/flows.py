@@ -127,15 +127,35 @@ def fetch_investor_flows(trade_day: dt.date, n: int = 3,
     empty = {"buy": {"외국인": [], "기관": []},
              "sell": {"외국인": [], "기관": []},
              "retail_buy": []}
+    def _stock_table(sp):
+        """종목 상세 링크(code=)가 들어있는 테이블(=데이터 표)을 찾는다."""
+        if sp is None:
+            return None
+        return next((t for t in sp.select("table")
+                     if t.select_one("a[href*='code=']")), None)
+
+    def _abs_url(src: str) -> str:
+        if src.startswith("http"):
+            return src
+        if src.startswith("/"):
+            return "https://finance.naver.com" + src
+        return "https://finance.naver.com/sise/" + src
+
     soup = _soup(_FRGN_URL.format(sosok=0))  # 코스피
-    if soup is None:
-        return empty
-    # 클래스에 의존하지 않고 '종목 상세 링크(code=)'가 있는 테이블을 찾는다
-    tables = soup.select("table")
-    table = next((t for t in tables if t.select_one("a[href*='code=']")), None)
+    table = _stock_table(soup)
     if table is None:
-        classes = [t.get("class") for t in tables]
-        print(f"[flows] 순매매: 종목 테이블 없음. table수={len(tables)} classes={classes}")
+        # frgn.naver 가 프레임셋/JS 구조일 수 있다 → 프레임 src 를 찾아 그 안을 조회
+        if soup is not None:
+            frames = [f.get("src") for f in soup.select("frame, iframe") if f.get("src")]
+            print(f"[flows] 순매매: frgn 표 없음(table수={len(soup.select('table'))}). "
+                  f"frames={frames} snippet={soup.get_text(strip=True)[:100]!r}")
+            for src in frames:
+                sp2 = _soup(_abs_url(src))
+                table = _stock_table(sp2)
+                if table is not None:
+                    print(f"[flows] 순매매: 프레임에서 표 발견 → {_abs_url(src)}")
+                    break
+    if table is None:
         return empty
 
     # (종목명, 외국인순매매량, 기관순매매량) 수집
