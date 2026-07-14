@@ -177,7 +177,7 @@ def build_text(b: Briefing) -> str:
               if b.value_top or b.net_buy:
         L.append("")
         L.append("💰 수급 & 거래대금 (돈의 흐름)")
-        if b.value_top:
+      if b.value_top:
             L.append("· 거래대금 상위: " + ", ".join(
                 f"{s.name}({_eok(s.trade_value)}, {_sign(s.change_pct)}{s.change_pct:.1f}%)"
                 for s in b.value_top))
