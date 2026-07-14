@@ -2,8 +2,10 @@
 
 섹션 구성:
   인사말
+  🐜 오늘의 개미 체크포인트  (출근길 10초 요약 — 이미 모은 데이터만으로 조립)
   🌐 [1] 마켓 뷰 (지수 & 환율)
   🔥 [2] 오늘의 주도 섹터 & 주목 종목  (테마별 종목 + 흐름 요약)
+       └ 💰 수급 & 거래대금: 거래대금 상위 / 외국인·기관 순매수·순매도 / 개인 순매수
   📰 [3] 전일 주요 이슈 & 뉴스  (클릭 가능한 링크)
   🚨 [4] 오늘의 주요 일정 & 리스크
 """
@@ -25,9 +27,10 @@ class Briefing:
     indices_comment: str            # 섹션 1 💡 관전 포인트
     theme_groups: list              # 섹션2 🏢 빅 섹터(국내+미국 큐레이션) (ThemeGroup)
     trending_themes: list = field(default_factory=list)  # 섹션2 ⚡ 트렌딩 스몰 섹션 (ThemeGroup)
-    small_movers: list = field(default_factory=list)  # 섹션2 💡 기타 당일 강세 종목 (Stock)
     value_top: list = field(default_factory=list)   # 섹션2 💰 거래대금 상위 (Stock)
     net_buy: dict = field(default_factory=dict)      # 섹션2 💰 외국인·기관 순매수 {'외국인':[Stock],'기관':[Stock]}
+    net_sell: dict = field(default_factory=dict)     # 섹션2 💰 외국인·기관 순매도(스마트머니가 던진 종목)
+    retail_net_buy: list = field(default_factory=list)  # 섹션2 💰 개인 순매수(군중 쏠림 — 고점 물림 주의)
     issues: list = field(default_factory=list)   # 섹션 3 (Issue: .title/.url)
     calendar_summary: str = ""      # 섹션 4
 
@@ -132,6 +135,44 @@ def _index_html_blocks(quotes) -> str:
     return "".join(out) or "<div>데이터 없음</div>"
 
 
+# ── 🐜 오늘의 개미 체크포인트 (이미 수집한 데이터만으로 조립, 외부 호출 없음) ──
+def _tldr_lines(b: Briefing) -> List[str]:
+    """출근길 10초 요약. index_quotes/theme_groups/수급/일정에서 핵심만 뽑는다."""
+    out: List[str] = []
+
+    def _q(name: str):
+        return next((q for q in b.index_quotes if q.name == name), None)
+
+    # 1) 지수 방향 (코스피·나스닥)
+    idx_bits = []
+    for nm in ("코스피", "나스닥"):
+        q = _q(nm)
+        if q is not None:
+            idx_bits.append(f"{nm} {_sign(q.change_pct)}{q.change_pct:.1f}%")
+    if idx_bits:
+        out.append("🌐 지수: " + " · ".join(idx_bits))
+
+    # 2) 오늘 주도 섹터 (가장 강한 섹터)
+    if b.theme_groups:
+        g = b.theme_groups[0]
+        out.append(f"🔥 주도 섹터: {g.name} ({g.label})")
+
+    # 3) 외국인 수급 한 줄 (순매수 우선, 없으면 순매도)
+    fo_buy = (b.net_buy or {}).get("외국인")
+    fo_sell = (b.net_sell or {}).get("외국인")
+    if fo_buy:
+        out.append(f"🟢 외국인 순매수: {fo_buy[0].name} 등")
+    elif fo_sell:
+        out.append(f"🔴 외국인 순매도 우위: {fo_sell[0].name} 등")
+
+    # 4) 오늘 일정 유의 여부
+    cal = (b.calendar_summary or "").strip()
+    if cal and "특별히 주의할 주요 일정은 없습니다" not in cal:
+        out.append("🚨 오늘 주요 일정 있음 — 하단 [4] 확인")
+
+    return out
+
+
 # ── 텍스트 본문 ───────────────────────────────────────────
 def build_text(b: Briefing) -> str:
     L: List[str] = []
@@ -139,6 +180,12 @@ def build_text(b: Briefing) -> str:
     L.append(f"📅 {b.today.strftime('%Y-%m-%d (%a)')} · 데이터 기준일 {b.trade_day.strftime('%Y-%m-%d')}")
     L.append("")
     L.append(_GREETING)
+    tldr = _tldr_lines(b)
+    if tldr:
+        L.append("")
+        L.append("🐜 오늘의 개미 체크포인트")
+        for t in tldr:
+            L.append(f"  {t}")
     L.append("")
     L.append("─" * 20)
     L.append("")
@@ -169,23 +216,26 @@ def build_text(b: Briefing) -> str:
             L.append(f"{g.emoji} {g.name} ({g.label}) — {members}")
             if g.summary:
                 L.append(f"  💬 {g.summary}")
-    if b.small_movers:
+    if b.value_top or b.net_buy or b.net_sell or b.retail_net_buy:
         L.append("")
-        L.append("💡 기타 당일 강세 종목 (단기 급등·소형주)")
-        for s in b.small_movers:
-            reason = f" · {s.reason}" if s.reason else ""
-            L.append(f"- {_flag(s)} {s.name}: {_stock_price(s)} {_pct_text(s.change_pct)}{reason}")
-    if b.value_top or b.net_buy:
-        L.append("")
-        L.append("💰 수급 & 거래대금 (돈의 흐름)")
+        L.append("💰 수급 & 거래대금 (돈의 흐름 — 개미 필독)")
         if b.value_top:
-            L.append("· 거래대금 상위: " + ", ".join(
+            L.append("· 💵 거래대금 상위: " + ", ".join(
                 f"{s.name}({_eok(s.trade_value)}, {_sign(s.change_pct)}{s.change_pct:.1f}%)"
                 for s in b.value_top))
         for label, rows in (b.net_buy or {}).items():
             if rows:
-                L.append(f"· {label} 순매수: " + ", ".join(
+                L.append(f"· 🟢 {label} 순매수: " + ", ".join(
                     f"{s.name}(+{_eok(s.trade_value)})" for s in rows))
+        for label, rows in (b.net_sell or {}).items():
+            if rows:
+                L.append(f"· 🔴 {label} 순매도: " + ", ".join(
+                    f"{s.name}(-{_eok(s.trade_value)})" for s in rows))
+        if b.retail_net_buy:
+            L.append("· 🐜 개인 순매수: " + ", ".join(
+                f"{s.name}(+{_eok(s.trade_value)})" for s in b.retail_net_buy))
+        if b.net_sell and b.retail_net_buy:
+            L.append("  ※ 외국인·기관(스마트머니)이 파는데 개인이 담는 종목은 고점 물림에 특히 주의.")
     L.append("")
     L.append("📰 [3] 전일 주요 이슈 & 뉴스")
     if b.issues:
@@ -290,23 +340,7 @@ def build_html(b: Briefing) -> str:
         "(실시간 급등 테마)</span></div>" + "".join(trend_blocks) + "</div>"
     ) if b.trending_themes else ""
 
-    # 섹션 2-C · 💡 기타 당일 강세 종목 (상한가성 소형주)
-    if b.small_movers:
-        mover_lis = "".join(
-            f"<li style='margin:3px 0;'>{_flag(s)} {_esc(s.name)}: {_stock_price(s)} {_pct_html(s.change_pct)}"
-            + (f"<span style='color:#888;font-size:12px;'> · {_esc(s.reason)}</span>" if s.reason else "")
-            + "</li>"
-            for s in b.small_movers
-        )
-        movers_html = (
-            "<div style='margin-top:16px;'><div style='font-size:14px;font-weight:bold;color:#555;'>"
-            "💡 기타 당일 강세 종목 <span style='font-weight:normal;color:#888;font-size:12px;'>"
-            "(단기 급등·소형주)</span></div>"
-            f"<ul style='padding-left:18px;margin:6px 0 0;color:#333;line-height:1.5;font-size:13px;'>{mover_lis}</ul></div>"
-        )
-    else:
-        movers_html = ""
-          # 섹션 2-D · 💰 수급 & 거래대금 (개인 투자자 관점)
+    # 섹션 2-C · 💰 수급 & 거래대금 (개인 투자자 관점: 스마트머니 vs 개미)
     flows_parts = []
     if b.value_top:
         vlis = "".join(
@@ -316,22 +350,34 @@ def build_html(b: Briefing) -> str:
         )
         flows_parts.append(
             "<div style='margin-top:10px;'><div style='font-size:13px;font-weight:bold;color:#555;'>"
-            "🔥 거래대금 상위 <span style='font-weight:normal;color:#888;font-size:12px;'>(돈이 몰린 종목)</span></div>"
+            "💵 거래대금 상위 <span style='font-weight:normal;color:#888;font-size:12px;'>(돈이 몰린 종목)</span></div>"
             f"<ul style='padding-left:18px;margin:5px 0 0;color:#333;line-height:1.5;font-size:13px;'>{vlis}</ul></div>"
         )
+
+    def _flow_row(icon: str, label: str, rows, sign: str) -> str:
+        bits = " · ".join(f"{_esc(s.name)} <b>{sign}{_eok(s.trade_value)}</b>" for s in rows)
+        return (f"<div style='margin-top:8px;font-size:13px;color:#333;'>"
+                f"<span style='color:#555;font-weight:bold;'>{icon} {_esc(label)}</span> {bits}</div>")
+
     for label, rows in (b.net_buy or {}).items():
         if rows:
-            bits = " · ".join(f"{_esc(s.name)} <b>+{_eok(s.trade_value)}</b>" for s in rows)
-            flows_parts.append(
-                f"<div style='margin-top:8px;font-size:13px;color:#333;'>"
-                f"<span style='color:#555;font-weight:bold;'>🌐 {label} 순매수</span> {bits}</div>"
-            )
+            flows_parts.append(_flow_row("🟢", f"{label} 순매수", rows, "+"))
+    for label, rows in (b.net_sell or {}).items():
+        if rows:
+            flows_parts.append(_flow_row("🔴", f"{label} 순매도", rows, "-"))
+    if b.retail_net_buy:
+        flows_parts.append(_flow_row("🐜", "개인 순매수", b.retail_net_buy, "+"))
+    caution_html = (
+        "<div style='margin-top:10px;font-size:12px;color:#a33;line-height:1.5;'>"
+        "※ 외국인·기관(스마트머니)이 파는데 개인이 담는 종목은 고점 물림에 특히 주의하세요.</div>"
+        if (b.net_sell and b.retail_net_buy) else ""
+    )
     flows_html = (
         "<div style='margin-top:16px;padding:10px 12px;background:#f1f5f9;border-radius:8px;'>"
         "<div style='font-size:14px;font-weight:bold;'>💰 수급 &amp; 거래대금 "
-        "<span style='font-weight:normal;color:#888;font-size:12px;'>(돈의 흐름)</span></div>"
-        + "".join(flows_parts) + "</div>"
-    ) if (b.value_top or b.net_buy) else ""
+        "<span style='font-weight:normal;color:#888;font-size:12px;'>(돈의 흐름 — 개미 필독)</span></div>"
+        + "".join(flows_parts) + caution_html + "</div>"
+    ) if (b.value_top or b.net_buy or b.net_sell or b.retail_net_buy) else ""
 
     # 섹션 3
     if b.issues:
@@ -346,6 +392,20 @@ def build_html(b: Briefing) -> str:
     def h2(t: str) -> str:
         return f"<h2 style='font-size:17px;margin:24px 0 8px;'>{t}</h2>"
 
+    # 🐜 오늘의 개미 체크포인트 (상단 요약 박스)
+    tldr = _tldr_lines(b)
+    tldr_html = (
+        "<div style='margin:14px 0;padding:12px 14px;background:#fff4e6;"
+        "border:1px solid #ffd8a8;border-radius:10px;'>"
+        "<div style='font-size:14px;font-weight:bold;color:#c15400;margin-bottom:6px;'>"
+        "🐜 오늘의 개미 체크포인트</div>"
+        + "".join(
+            f"<div style='font-size:13px;color:#333;margin:3px 0;'>{_esc(t)}</div>"
+            for t in tldr
+        )
+        + "</div>"
+    ) if tldr else ""
+
     return f"""\
 <div style="max-width:600px;margin:0 auto;font-family:-apple-system,'Malgun Gothic',sans-serif;
             color:#1a1a1a;padding:16px;">
@@ -356,6 +416,7 @@ def build_html(b: Briefing) -> str:
     </div>
   </div>
   <div style="margin:14px 0;color:#444;font-size:14px;">{_esc(_GREETING)}</div>
+  {tldr_html}
 
   {h2("🌐 [1] 마켓 뷰 <span style='font-size:13px;color:#888;'>(지수 &amp; 환율)</span>")}
   <div style="color:#333;line-height:1.5;font-size:14px;">{idx_html}</div>
@@ -367,7 +428,6 @@ def build_html(b: Briefing) -> str:
   <div style="font-size:14px;font-weight:bold;color:#555;margin-top:12px;">🏢 시장 주도 빅 섹션 <span style="font-weight:normal;color:#888;font-size:12px;">(국내+미국 핵심주)</span></div>
   {big_html}
   {trend_html}
-  {movers_html}
   {flows_html}
 
   {h2("📰 [3] 전일 주요 이슈 &amp; 뉴스")}
