@@ -31,7 +31,11 @@ _HEADERS = {
 }
 # sosok: 0=코스피, 1=코스닥
 _QUANT_URL = "https://finance.naver.com/sise/sise_quant.naver?sosok={sosok}"
-_FRGN_URL = "https://finance.naver.com/sise/frgn.naver?sosok={sosok}"
+# 외국인·기관 순매매 상위 후보 URL (frgn.naver 는 404 확인됨 → deal_rank 계열 시도)
+_DEAL_URLS = [
+    "https://finance.naver.com/sise/sise_deal_rank.naver",
+    "https://finance.naver.com/sise/sise_deal_rank.naver?sosok=0&investor_gubun=1000&type=buy",
+]
 
 
 def _num(text) -> Optional[float]:
@@ -134,27 +138,16 @@ def fetch_investor_flows(trade_day: dt.date, n: int = 3,
         return next((t for t in sp.select("table")
                      if t.select_one("a[href*='code=']")), None)
 
-    def _abs_url(src: str) -> str:
-        if src.startswith("http"):
-            return src
-        if src.startswith("/"):
-            return "https://finance.naver.com" + src
-        return "https://finance.naver.com/sise/" + src
-
-    soup = _soup(_FRGN_URL.format(sosok=0))  # 코스피
-    table = _stock_table(soup)
-    if table is None:
-        # frgn.naver 가 프레임셋/JS 구조일 수 있다 → 프레임 src 를 찾아 그 안을 조회
-        if soup is not None:
-            frames = [f.get("src") for f in soup.select("frame, iframe") if f.get("src")]
-            print(f"[flows] 순매매: frgn 표 없음(table수={len(soup.select('table'))}). "
-                  f"frames={frames} snippet={soup.get_text(strip=True)[:100]!r}")
-            for src in frames:
-                sp2 = _soup(_abs_url(src))
-                table = _stock_table(sp2)
-                if table is not None:
-                    print(f"[flows] 순매매: 프레임에서 표 발견 → {_abs_url(src)}")
-                    break
+    table = None
+    for url in _DEAL_URLS:
+        sp = _soup(url)
+        table = _stock_table(sp)
+        if table is not None:
+            print(f"[flows] 순매매: 표 발견 → {url}")
+            break
+        if sp is not None:
+            print(f"[flows] 순매매: 표 없음 @ {url} "
+                  f"(table수={len(sp.select('table'))}) snippet={sp.get_text(strip=True)[:80]!r}")
     if table is None:
         return empty
 
