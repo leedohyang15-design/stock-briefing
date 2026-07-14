@@ -7,3 +7,4 @@ google-genai>=1.0.0
 python-dotenv>=1.0.0
 holidays>=0.50
 pyyaml>=6.0
+pykrx
