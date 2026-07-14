@@ -25,6 +25,7 @@ class Briefing:
     indices_comment: str            # 섹션 1 💡 관전 포인트
     theme_groups: list              # 섹션2 🏢 빅 섹터(국내+미국 큐레이션) (ThemeGroup)
     trending_themes: list = field(default_factory=list)  # 섹션2 ⚡ 트렌딩 스몰 섹션 (ThemeGroup)
+    small_movers: list = field(default_factory=list)  # 섹션2 💡 기타 당일 강세 종목 (Stock)
     value_top: list = field(default_factory=list)   # 섹션2 💰 거래대금 상위 (Stock)
     net_buy: dict = field(default_factory=dict)      # 섹션2 💰 외국인·기관 순매수 {'외국인':[Stock],'기관':[Stock]}
     issues: list = field(default_factory=list)   # 섹션 3 (Issue: .title/.url)
