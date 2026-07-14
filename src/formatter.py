@@ -25,7 +25,8 @@ class Briefing:
     indices_comment: str            # 섹션 1 💡 관전 포인트
     theme_groups: list              # 섹션2 🏢 빅 섹터(국내+미국 큐레이션) (ThemeGroup)
     trending_themes: list = field(default_factory=list)  # 섹션2 ⚡ 트렌딩 스몰 섹션 (ThemeGroup)
-    small_movers: list = field(default_factory=list)     # 섹션2 💡 기타 강세 종목 (Stock)
+    value_top: list = field(default_factory=list)   # 섹션2 💰 거래대금 상위 (Stock)
+    net_buy: dict = field(default_factory=dict)      # 섹션2 💰 외국인·기관 순매수 {'외국인':[Stock],'기관':[Stock]}
     issues: list = field(default_factory=list)   # 섹션 3 (Issue: .title/.url)
     calendar_summary: str = ""      # 섹션 4
 
@@ -67,7 +68,10 @@ def _pct_html(v: float) -> str:
     """📈/📉 이모지 + 색상 등락률 (HTML)."""
     return (f"{_arrow(v)} <span style='color:{_pct_color(v)};font-weight:600;'>"
             f"{_sign(v)}{v:.2f}%</span>")
-
+  
+def _eok(v) -> str:
+    """원 단위 금액 → '1,234억' 문자열."""
+    return f"{(v or 0) / 1e8:,.0f}억"
 
 def _pct_text(v: float) -> str:
     """📈/📉 이모지 + 등락률 (텍스트)."""
@@ -170,6 +174,17 @@ def build_text(b: Briefing) -> str:
         for s in b.small_movers:
             reason = f" · {s.reason}" if s.reason else ""
             L.append(f"- {_flag(s)} {s.name}: {_stock_price(s)} {_pct_text(s.change_pct)}{reason}")
+              if b.value_top or b.net_buy:
+        L.append("")
+        L.append("💰 수급 & 거래대금 (돈의 흐름)")
+        if b.value_top:
+            L.append("· 거래대금 상위: " + ", ".join(
+                f"{s.name}({_eok(s.trade_value)}, {_sign(s.change_pct)}{s.change_pct:.1f}%)"
+                for s in b.value_top))
+        for label, rows in (b.net_buy or {}).items():
+            if rows:
+                L.append(f"· {label} 순매수: " + ", ".join(
+                    f"{s.name}(+{_eok(s.trade_value)})" for s in rows))
     L.append("")
     L.append("📰 [3] 전일 주요 이슈 & 뉴스")
     if b.issues:
@@ -290,6 +305,32 @@ def build_html(b: Briefing) -> str:
         )
     else:
         movers_html = ""
+          # 섹션 2-D · 💰 수급 & 거래대금 (개인 투자자 관점)
+    flows_parts = []
+    if b.value_top:
+        vlis = "".join(
+            f"<li style='margin:3px 0;'>{_esc(s.name)}: <b>{_eok(s.trade_value)}</b> "
+            f"{_pct_html(s.change_pct)}</li>"
+            for s in b.value_top
+        )
+        flows_parts.append(
+            "<div style='margin-top:10px;'><div style='font-size:13px;font-weight:bold;color:#555;'>"
+            "🔥 거래대금 상위 <span style='font-weight:normal;color:#888;font-size:12px;'>(돈이 몰린 종목)</span></div>"
+            f"<ul style='padding-left:18px;margin:5px 0 0;color:#333;line-height:1.5;font-size:13px;'>{vlis}</ul></div>"
+        )
+    for label, rows in (b.net_buy or {}).items():
+        if rows:
+            bits = " · ".join(f"{_esc(s.name)} <b>+{_eok(s.trade_value)}</b>" for s in rows)
+            flows_parts.append(
+                f"<div style='margin-top:8px;font-size:13px;color:#333;'>"
+                f"<span style='color:#555;font-weight:bold;'>🌐 {label} 순매수</span> {bits}</div>"
+            )
+    flows_html = (
+        "<div style='margin-top:16px;padding:10px 12px;background:#f1f5f9;border-radius:8px;'>"
+        "<div style='font-size:14px;font-weight:bold;'>💰 수급 &amp; 거래대금 "
+        "<span style='font-weight:normal;color:#888;font-size:12px;'>(돈의 흐름)</span></div>"
+        + "".join(flows_parts) + "</div>"
+    ) if (b.value_top or b.net_buy) else ""
 
     # 섹션 3
     if b.issues:
@@ -326,6 +367,7 @@ def build_html(b: Briefing) -> str:
   {big_html}
   {trend_html}
   {movers_html}
+  {flows_html}
 
   {h2("📰 [3] 전일 주요 이슈 &amp; 뉴스")}
   <ul style="padding-left:18px;margin:0;line-height:1.5;">{issue_html}</ul>
