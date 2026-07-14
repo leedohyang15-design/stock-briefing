@@ -174,10 +174,10 @@ def build_text(b: Briefing) -> str:
         for s in b.small_movers:
             reason = f" · {s.reason}" if s.reason else ""
             L.append(f"- {_flag(s)} {s.name}: {_stock_price(s)} {_pct_text(s.change_pct)}{reason}")
-              if b.value_top or b.net_buy:
+    if b.value_top or b.net_buy:
         L.append("")
         L.append("💰 수급 & 거래대금 (돈의 흐름)")
-      if b.value_top:
+        if b.value_top:
             L.append("· 거래대금 상위: " + ", ".join(
                 f"{s.name}({_eok(s.trade_value)}, {_sign(s.change_pct)}{s.change_pct:.1f}%)"
                 for s in b.value_top))
