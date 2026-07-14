@@ -5,8 +5,8 @@
 러너에서 접근 가능한 네이버 금융(finance.naver.com) 스크래핑으로 전환한다.
 (무료·무키, hot_sectors.py 와 동일한 방식)
 
-- fetch_trading_value_top(): 거래대금 상위 종목 (sise_quant)
-- fetch_investor_flows():   외국인·기관 순매매 상위 (frgn.naver)
+- fetch_trading_value_top(): 거래대금 상위 종목 (sise_quant) — 정상 동작
+- fetch_investor_flows():   외국인·기관 순매매 상위 — 현재 no-op(빈 결과, 사유는 함수 주석)
 
 기존 watchlist.Stock 모델을 재사용해 formatter/summarizer 와 호환한다.
 trade_value 단위는 '원'(포맷터가 억으로 환산). 순매매(수량 기준) 항목은
@@ -31,11 +31,6 @@ _HEADERS = {
 }
 # sosok: 0=코스피, 1=코스닥
 _QUANT_URL = "https://finance.naver.com/sise/sise_quant.naver?sosok={sosok}"
-# 외국인·기관 순매매 상위 후보 URL (frgn.naver 는 404 확인됨 → deal_rank 계열 시도)
-_DEAL_URLS = [
-    "https://finance.naver.com/sise/sise_deal_rank.naver",
-    "https://finance.naver.com/sise/sise_deal_rank.naver?sosok=0&investor_gubun=1000&type=buy",
-]
 
 
 def _num(text) -> Optional[float]:
@@ -113,85 +108,23 @@ def fetch_trading_value_top(trade_day: dt.date, n: int = 5,
     return uniq
 
 
-# ── 외국인·기관 순매매 상위 (frgn.naver) ──────────────────
+# ── 외국인·기관 순매매 상위 (미구현) ──────────────────────
 def fetch_investor_flows(trade_day: dt.date, n: int = 3,
                          market: str = "KOSPI") -> Dict[str, object]:
-    """외국인·기관 순매매 상위(수량 기준)를 네이버 frgn.naver 에서 조회.
+    """외국인·기관/개인 순매매 상위 — 현재는 빈 결과(no-op).
 
-    반환:
-      {
-        "buy":  {"외국인": [Stock], "기관": [Stock]},   # 순매수 상위(순매매량 큰 순)
-        "sell": {"외국인": [Stock], "기관": [Stock]},   # 순매도 상위(순매매량 작은 순)
-        "retail_buy": [],                                # 개인은 네이버 미제공 → 빈 리스트
-      }
-    frgn.naver number 셀 상대 순서(추정):
-      0=현재가,1=전일비,2=등락률,3=거래량,4=외국인 순매매량,...,기관 순매매량은 마지막.
-    금액을 알 수 없어 Stock.trade_value=None (종목명만 노출). 순매매량은 정렬에만 사용.
+    무료·러너접근 가능 소스로는 종목별 투자자 순매매 상위를 안정적으로 얻지 못했다:
+      · KRX(pykrx): GitHub Actions 러너의 해외 IP를 차단.
+      · 네이버 frgn.naver: 404(존재하지 않는 URL).
+      · 네이버 sise_deal_rank.naver: 페이지는 있으나 본문 순매매 표의 DOM 구조를
+        헤드리스 환경에서 확정하지 못함(사이드바 표만 잡힘).
+    이 함수는 formatter/main 과의 호환을 위해 빈 구조를 반환한다. 향후 정확한
+    소스(네이버 deal_rank 정밀 파서 또는 유료·인증 API)가 확정되면 여기만 채우면 된다.
+    (거래대금 상위 fetch_trading_value_top 은 네이버 sise_quant 로 정상 동작한다.)
     """
-    empty = {"buy": {"외국인": [], "기관": []},
-             "sell": {"외국인": [], "기관": []},
-             "retail_buy": []}
-    def _stock_table(sp):
-        """종목 상세 링크(code=)가 들어있는 테이블(=데이터 표)을 찾는다."""
-        if sp is None:
-            return None
-        return next((t for t in sp.select("table")
-                     if t.select_one("a[href*='code=']")), None)
-
-    table = None
-    for url in _DEAL_URLS:
-        sp = _soup(url)
-        table = _stock_table(sp)
-        if table is not None:
-            print(f"[flows] 순매매: 표 발견 → {url}")
-            break
-        if sp is not None:
-            print(f"[flows] 순매매: 표 없음 @ {url} "
-                  f"(table수={len(sp.select('table'))}) snippet={sp.get_text(strip=True)[:80]!r}")
-    if table is None:
-        return empty
-
-    # (종목명, 외국인순매매량, 기관순매매량) 수집
-    recs = []
-    for tr in table.select("tr"):
-        a = tr.select_one("a[href*='code=']")
-        if a is None:
-            continue
-        nums = _number_cells(tr)
-        if len(nums) < 5:
-            continue
-        name = a.get_text(strip=True)
-        frgn = _num(nums[4])                       # 외국인 순매매량
-        inst = _num(nums[-1]) if len(nums) >= 6 else None  # 기관 순매매량(마지막 추정)
-        if name and frgn is not None:
-            recs.append((name, frgn, inst))
-
-    if not recs:
-        # 러너 로그로 frgn 실제 컬럼 구조를 진단 (다음 라운드 인덱스 보정용)
-        ths = [th.get_text(strip=True) for th in table.select("th")]
-        first = next((tr for tr in table.select("tr")
-                      if tr.select_one("a[href*='code=']")), None)
-        cells = [td.get_text(strip=True) for td in first.find_all("td")] if first else []
-        print(f"[flows] 순매매 파싱 0건. th={ths} | 첫행셀={cells}")
-        return empty
-
-    def _stock(name: str) -> Stock:
-        return Stock(name=name, ticker="", currency="KRW", trade_value=None)
-
-    def _top(idx: int, positive: bool) -> List[Stock]:
-        pool = [r for r in recs if r[idx] is not None and
-                (r[idx] > 0 if positive else r[idx] < 0)]
-        pool.sort(key=lambda r: r[idx], reverse=positive)
-        return [_stock(r[0]) for r in pool[:n]]
-
-    inst_ok = any(r[2] is not None for r in recs)
-    return {
-        "buy":  {"외국인": _top(1, True),
-                 "기관":  _top(2, True) if inst_ok else []},
-        "sell": {"외국인": _top(1, False),
-                 "기관":  _top(2, False) if inst_ok else []},
-        "retail_buy": [],
-    }
+    return {"buy": {"외국인": [], "기관": []},
+            "sell": {"외국인": [], "기관": []},
+            "retail_buy": []}
 
 
 def fetch_investor_net_buy(trade_day: dt.date, n: int = 3,
