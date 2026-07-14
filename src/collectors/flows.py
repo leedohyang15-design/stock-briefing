@@ -130,15 +130,18 @@ def fetch_investor_flows(trade_day: dt.date, n: int = 3,
     soup = _soup(_FRGN_URL.format(sosok=0))  # 코스피
     if soup is None:
         return empty
-    table = soup.select_one("table.type_2")
+    # 클래스에 의존하지 않고 '종목 상세 링크(code=)'가 있는 테이블을 찾는다
+    tables = soup.select("table")
+    table = next((t for t in tables if t.select_one("a[href*='code=']")), None)
     if table is None:
-        print("[flows] 순매매: table.type_2 없음")
+        classes = [t.get("class") for t in tables]
+        print(f"[flows] 순매매: 종목 테이블 없음. table수={len(tables)} classes={classes}")
         return empty
 
     # (종목명, 외국인순매매량, 기관순매매량) 수집
     recs = []
     for tr in table.select("tr"):
-        a = tr.select_one("a.tltle")
+        a = tr.select_one("a[href*='code=']")
         if a is None:
             continue
         nums = _number_cells(tr)
@@ -151,8 +154,12 @@ def fetch_investor_flows(trade_day: dt.date, n: int = 3,
             recs.append((name, frgn, inst))
 
     if not recs:
-        ths = [th.get_text(strip=True) for th in table.select("thead th")]
-        print(f"[flows] 순매매 파싱 0건. thead={ths}")
+        # 러너 로그로 frgn 실제 컬럼 구조를 진단 (다음 라운드 인덱스 보정용)
+        ths = [th.get_text(strip=True) for th in table.select("th")]
+        first = next((tr for tr in table.select("tr")
+                      if tr.select_one("a[href*='code=']")), None)
+        cells = [td.get_text(strip=True) for td in first.find_all("td")] if first else []
+        print(f"[flows] 순매매 파싱 0건. th={ths} | 첫행셀={cells}")
         return empty
 
     def _stock(name: str) -> Stock:
