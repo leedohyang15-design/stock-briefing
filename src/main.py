@@ -17,7 +17,7 @@ from .holidays_kr import (
 )
 from . import formatter, sender, summarizer
 from .collectors import calendar as cal_collector
-from .collectors import flows, hot_sectors, indices, issues, watchlist
+from .collectors import earnings, flows, hot_sectors, indices, issues, watchlist
 
 
 def _safe(label, fn, default):
@@ -46,6 +46,10 @@ def run(force: bool = False) -> int:
         "트렌딩 테마", lambda: hot_sectors.fetch_trending(3, 2, 6), ([], []))
     top_issues = _safe("주요 이슈", lambda: issues.fetch_top_issues(3), [])
     cal_events = _safe("일정/리스크", lambda: cal_collector.fetch_calendar(today), [])
+    # 워치리스트 종목의 임박한 실적발표 예정일을 일정에 합침
+    cal_events = cal_events + _safe(
+        "실적발표 예정", lambda: earnings.fetch_earnings_events(today), [])
+    cal_events.sort(key=lambda e: e.days_until)
     value_top = _safe("거래대금 상위", lambda: flows.fetch_trading_value_top(trade_day, 5), [])
     # 외국인·기관 순매매(순매수·순매도) 상위 (네이버 frgn)
     flow_data = _safe("투자자 순매매(외국인·기관)",
