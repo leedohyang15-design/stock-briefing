@@ -112,7 +112,8 @@ def fetch_macro_events(day: Optional[dt.date] = None) -> List[CalendarEvent]:
             if d in window:
                 events.append(CalendarEvent(
                     title=item["title"], category="매크로",
-                    note=item.get("note"), days_until=(d - day).days, impact="🔥"))
+                    note=item.get("note"), days_until=(d - day).days,
+                    time=item.get("time", ""), impact=item.get("impact", "🔥")))
         except Exception as e:  # noqa: BLE001
             print(f"[calendar] fixed 항목 처리 실패: {e}")
 
@@ -124,7 +125,8 @@ def fetch_macro_events(day: Optional[dt.date] = None) -> List[CalendarEvent]:
                 if _match_recurring(rule, d):
                     events.append(CalendarEvent(
                         title=item["title"], category="매크로",
-                        note=item.get("note"), days_until=(d - day).days, impact="🔥"))
+                        note=item.get("note"), days_until=(d - day).days,
+                        time=item.get("time", ""), impact=item.get("impact", "🔥")))
                     break  # 창 내 가장 가까운 1회만
         except Exception as e:  # noqa: BLE001
             print(f"[calendar] recurring 항목 처리 실패: {e}")
@@ -144,10 +146,12 @@ def fetch_lockup_releases(day: Optional[dt.date] = None) -> List[CalendarEvent]:
 
 
 def fetch_calendar(day: Optional[dt.date] = None) -> List[CalendarEvent]:
-    """섹션 4 통합 수집: 금일 증시 시간표 + 매크로 일정 + 락업 해제."""
+    """섹션 4 통합 수집: 경제지표·이벤트(매크로) + 락업 해제.
+
+    (개장·폐장 시각 같은 자명한 항목은 넣지 않는다 — 실제 경제지표·이벤트만.)
+    """
     day = day or today_kst()
-    events = today_market_events(day)      # 금일 개장·폐장 (항상 표시)
-    events.extend(fetch_macro_events(day))
+    events = fetch_macro_events(day)
     events.extend(fetch_lockup_releases(day))
     return events
 
