@@ -6,7 +6,7 @@
 (무료·무키, hot_sectors.py 와 동일한 방식)
 
 - fetch_trading_value_top(): 거래대금 상위 종목 (sise_quant) — 정상 동작
-- fetch_investor_flows():   외국인·기관 순매매 상위 — 현재 no-op(빈 결과, 사유는 함수 주석)
+- fetch_investor_flows():   외국인·기관 순매매 상위 — 종목별 frgn.naver 표를 파싱
 
 기존 watchlist.Stock 모델을 재사용해 formatter/summarizer 와 호환한다.
 trade_value 단위는 '원'(포맷터가 억으로 환산). 순매매(수량 기준) 항목은
@@ -15,9 +15,12 @@ trade_value 단위는 '원'(포맷터가 억으로 환산). 순매매(수량 기
 from __future__ import annotations
 
 import datetime as dt
-from typing import Dict, List, Optional
+import os
+import re
+from typing import Dict, List, Optional, Tuple
 
 import requests
+import yaml
 from bs4 import BeautifulSoup
 
 from .watchlist import Stock
@@ -31,6 +34,12 @@ _HEADERS = {
 }
 # sosok: 0=코스피, 1=코스닥
 _QUANT_URL = "https://finance.naver.com/sise/sise_quant.naver?sosok={sosok}"
+# 종목별 외국인·기관 순매매 페이지(서버렌더, table.type2)
+_FRGN_URL = "https://finance.naver.com/item/frgn.naver?code={code}"
+_SECTORS_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+    "config", "sectors.yaml",
+)
 
 
 def _num(text) -> Optional[float]:
@@ -108,23 +117,110 @@ def fetch_trading_value_top(trade_day: dt.date, n: int = 5,
     return uniq
 
 
-# ── 외국인·기관 순매매 상위 (미구현) ──────────────────────
+# ── 외국인·기관 순매매 상위 (종목별 frgn.naver 파싱) ──────
+def _domestic_universe() -> List[Tuple[str, str]]:
+    """sectors.yaml 의 국내(.KS/.KQ) 종목 → (종목명, 6자리 코드) 목록. 중복 제거."""
+    if not os.path.exists(_SECTORS_PATH):
+        print(f"[flows] sectors.yaml 없음: {_SECTORS_PATH}")
+        return []
+    try:
+        with open(_SECTORS_PATH, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+    except Exception as e:  # noqa: BLE001
+        print(f"[flows] sectors.yaml 파싱 실패: {e}")
+        return []
+    out, seen = [], set()
+    for sec in data.get("sectors", []) or []:
+        for s in sec.get("domestic", []) or []:
+            tk = str(s.get("ticker", ""))
+            if tk.endswith((".KS", ".KQ")) and tk[:6].isdigit() and tk[:6] not in seen:
+                seen.add(tk[:6])
+                out.append((s.get("name", tk[:6]), tk[:6]))
+    return out
+
+
+def _signed_num(td) -> Optional[float]:
+    """순매매량 셀 → 부호 있는 float. frgn.naver 는 셀 텍스트에 +/- 부호를 그대로 담는다
+    (예: '+5,326,105' 순매수 / '-1,128,775' 순매도) → _num 이 부호를 보존한다."""
+    return _num(td.get_text(strip=True))
+
+
+def _row_cells(tr):
+    """행의 셀(th+td)을 문서 순서대로. 날짜가 th 로 오는 표도 대응."""
+    return tr.find_all(["th", "td"])
+
+
+def _parse_frgn_latest(code: str) -> Optional[Tuple[float, float, float]]:
+    """종목의 최근 거래일 (종가, 기관 순매매량, 외국인 순매매량) 반환. 실패 시 None.
+
+    frgn.naver 일별 표 데이터 행 컬럼 순서:
+      0 날짜 · 1 종가 · 2 전일비 · 3 등락률 · 4 거래량
+      · 5 기관 순매매량 · 6 외국인 순매매량 · 7 외국인 보유주수 · 8 보유율
+    (type2 표가 여러 개일 수 있어 날짜 행이 나오는 표를 찾아 파싱한다.)
+    """
+    soup = _soup(_FRGN_URL.format(code=code))
+    if soup is None:
+        return None
+    for table in soup.select("table.type2"):
+        for tr in table.select("tr"):
+            cells = _row_cells(tr)
+            if len(cells) < 7:
+                continue
+            date_txt = cells[0].get_text(strip=True)
+            if not re.match(r"\d{4}\.\d{2}\.\d{2}", date_txt):
+                continue
+            close = _num(cells[1].get_text(strip=True))
+            if close is None:
+                continue
+            inst = _signed_num(cells[5]) or 0.0
+            foreign = _signed_num(cells[6]) or 0.0
+            return (close, inst, foreign)  # 가장 최근(맨 위) 데이터 행만
+    return None
+
+
 def fetch_investor_flows(trade_day: dt.date, n: int = 3,
                          market: str = "KOSPI") -> Dict[str, object]:
-    """외국인·기관/개인 순매매 상위 — 현재는 빈 결과(no-op).
+    """추적 종목(sectors.yaml 국내)의 외국인·기관·개인 순매매 상위를 반환.
 
-    무료·러너접근 가능 소스로는 종목별 투자자 순매매 상위를 안정적으로 얻지 못했다:
-      · KRX(pykrx): GitHub Actions 러너의 해외 IP를 차단.
-      · 네이버 frgn.naver: 404(존재하지 않는 URL).
-      · 네이버 sise_deal_rank.naver: 페이지는 있으나 본문 순매매 표의 DOM 구조를
-        헤드리스 환경에서 확정하지 못함(사이드바 표만 잡힘).
-    이 함수는 formatter/main 과의 호환을 위해 빈 구조를 반환한다. 향후 정확한
-    소스(네이버 deal_rank 정밀 파서 또는 유료·인증 API)가 확정되면 여기만 채우면 된다.
-    (거래대금 상위 fetch_trading_value_top 은 네이버 sise_quant 로 정상 동작한다.)
+    종목별 frgn.naver(서버렌더) 표에서 최근 거래일의 기관/외국인 순매매량을 읽고,
+    순매매 '금액'(≈ 순매매량 × 종가)이 큰 순으로 순매수/순매도 top n 을 뽑는다.
+    개인 순매매는 -(외국인 + 기관)으로 근사한다(기타법인·프로그램 제외 오차 있음).
+    반환 Stock.trade_value = |순매매 금액|(원). 금액을 몰라도 종목명은 노출된다.
     """
-    return {"buy": {"외국인": [], "기관": []},
-            "sell": {"외국인": [], "기관": []},
-            "retail_buy": []}
+    recs: List[Tuple[str, float, float, float]] = []  # (종목명, 종가, 기관량, 외국인량)
+    for name, code in _domestic_universe():
+        parsed = _parse_frgn_latest(code)
+        if parsed is None:
+            continue
+        close, inst_q, for_q = parsed
+        recs.append((name, close, inst_q, for_q))
+
+    def _mk(name: str, close: float, qty: float) -> Stock:
+        return Stock(name=name, ticker="", close=close, change_pct=0.0,
+                     currency="KRW", trade_value=abs(qty) * close)
+
+    def _top(pick, positive: bool) -> List[Stock]:
+        pool = [(name, close, pick(inst_q, for_q))
+                for (name, close, inst_q, for_q) in recs]
+        pool = [(nm, cl, q) for (nm, cl, q) in pool
+                if q != 0 and (q > 0) == positive]
+        pool.sort(key=lambda r: abs(r[2] * r[1]), reverse=True)  # 금액 큰 순
+        return [_mk(nm, cl, q) for nm, cl, q in pool[:n]]
+
+    foreign_buy = _top(lambda i, f: f, positive=True)
+    foreign_sell = _top(lambda i, f: f, positive=False)
+    inst_buy = _top(lambda i, f: i, positive=True)
+    inst_sell = _top(lambda i, f: i, positive=False)
+
+    # 개인 순매매 ≈ -(외국인 + 기관). 순매수 금액 큰 순.
+    retail = [(nm, cl, -(iq + fq)) for (nm, cl, iq, fq) in recs]
+    retail = [(nm, cl, q) for (nm, cl, q) in retail if q > 0]
+    retail.sort(key=lambda r: r[2] * r[1], reverse=True)
+    retail_buy = [_mk(nm, cl, q) for nm, cl, q in retail[:n]]
+
+    return {"buy": {"외국인": foreign_buy, "기관": inst_buy},
+            "sell": {"외국인": foreign_sell, "기관": inst_sell},
+            "retail_buy": retail_buy}
 
 
 def fetch_investor_net_buy(trade_day: dt.date, n: int = 3,
@@ -143,5 +239,9 @@ if __name__ == "__main__":
     print("\n[외국인·기관 순매매 상위]")
     fl = fetch_investor_flows(day, 3)
     for side_key, label_ko in (("buy", "순매수"), ("sell", "순매도")):
-        for who, rows in fl[side_key].items():
-            print(f"- {who} {label_ko}: " + ", ".join(s.name for s in rows))
+        for who, rows in fl[side_key].items():  # type: ignore[union-attr]
+            body = ", ".join(f"{s.name}({(s.trade_value or 0)/1e8:,.0f}억)" for s in rows)
+            print(f"- {who} {label_ko}: {body or '(없음)'}")
+    retail = fl.get("retail_buy", [])  # type: ignore[union-attr]
+    print("- 개인 순매수: " + (", ".join(
+        f"{s.name}({(s.trade_value or 0)/1e8:,.0f}억)" for s in retail) or "(없음)"))
