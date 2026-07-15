@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import List
 from urllib.parse import urljoin
@@ -29,6 +30,19 @@ class Issue:
     url: str
 
 
+def _article_url(href: str) -> str:
+    """네이버 금융 뉴스 링크(PC용 news_read)를 모바일·PC 모두 열리는
+    표준 기사 퍼머링크(n.news.naver.com/article/{언론사}/{기사})로 변환.
+
+    변환 실패 시(형식이 다르면) 원래 링크를 절대경로로 반환.
+    """
+    aid = re.search(r"article_id=(\d+)", href) or re.search(r"/article/\d+/(\d+)", href)
+    oid = re.search(r"office_id=(\d+)", href) or re.search(r"/article/(\d+)/", href)
+    if aid and oid:
+        return f"https://n.news.naver.com/article/{oid.group(1)}/{aid.group(1)}"
+    return urljoin(_BASE, href)
+
+
 def fetch_top_issues(limit: int = 3) -> List[Issue]:
     """전일 주요 증시 뉴스 상위 기사 제목 + 원문 링크."""
     issues: List[Issue] = []
@@ -43,7 +57,7 @@ def fetch_top_issues(limit: int = 3) -> List[Issue]:
             if not title or len(title) < 8 or title in seen:
                 continue
             seen.add(title)
-            issues.append(Issue(title=title, url=urljoin(_BASE, href)))
+            issues.append(Issue(title=title, url=_article_url(href)))
             if len(issues) >= limit:
                 break
     except Exception as e:  # noqa: BLE001
