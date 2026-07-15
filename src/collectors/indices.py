@@ -12,6 +12,7 @@ from .. import _ssl_bootstrap  # noqa: F401  (yfinance import 전에 SSL 경로 
 import yfinance as yf
 
 # (그룹, 표시명, yfinance 티커, 소수점 자리)
+# 안전자산·원자재는 달러 표시 자산(금·유가·미 국채 ETF)으로, 위험회피 심리를 함께 본다.
 _INDICES = [
     ("국내", "코스피", "^KS11", 2),
     ("국내", "코스닥", "^KQ11", 2),
@@ -19,6 +20,10 @@ _INDICES = [
     ("해외", "나스닥", "^IXIC", 2),
     ("해외", "S&P 500", "^GSPC", 2),
     ("환율", "원/달러", "KRW=X", 2),
+    ("안전자산·원자재", "금", "GC=F", 2),
+    ("안전자산·원자재", "WTI 유가", "CL=F", 2),
+    ("안전자산·원자재", "미 장기국채(TLT)", "TLT", 2),
+    ("안전자산·원자재", "미 단기국채(SHY)", "SHY", 2),
 ]
 
 
@@ -60,9 +65,14 @@ def to_plain_lines(quotes: List[IndexQuote]) -> List[str]:
     lines = []
     for q in quotes:
         sign = "+" if q.change_pct > 0 else ""
-        unit = "원" if q.group == "환율" else ""
+        if q.group == "환율":
+            val = f"{q.value:,.2f}원"
+        elif q.group == "안전자산·원자재":
+            val = f"${q.value:,.2f}"
+        else:
+            val = f"{q.value:,.2f}"
         lines.append(
-            f"[{q.group}] {q.name}: {q.value:,.2f}{unit} ({q.arrow} {sign}{q.change_pct:.2f}%)"
+            f"[{q.group}] {q.name}: {val} ({q.arrow} {sign}{q.change_pct:.2f}%)"
         )
     return lines
 

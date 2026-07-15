@@ -18,29 +18,30 @@ import yfinance as yf
 from .calendar import CalendarEvent
 from ..holidays_kr import today_kst
 
-_WATCHLIST_PATH = os.path.join(
+_SECTORS_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-    "config", "watchlist.yaml",
+    "config", "sectors.yaml",
 )
 
 
 def _watchlist_stocks() -> List[Tuple[str, str]]:
-    """watchlist.yaml 에서 (종목명, ticker) 목록을 중복 제거해 반환."""
-    if not os.path.exists(_WATCHLIST_PATH):
+    """sectors.yaml 의 국내·해외 후보에서 (종목명, ticker) 목록을 중복 제거해 반환."""
+    if not os.path.exists(_SECTORS_PATH):
         return []
     try:
-        with open(_WATCHLIST_PATH, "r", encoding="utf-8") as f:
+        with open(_SECTORS_PATH, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
     except Exception as e:  # noqa: BLE001
-        print(f"[earnings] watchlist.yaml 파싱 실패: {e}")
+        print(f"[earnings] sectors.yaml 파싱 실패: {e}")
         return []
     seen, out = set(), []
-    for t in data.get("themes", []) or []:
-        for s in t.get("stocks", []) or []:
-            tk = s.get("ticker")
-            if tk and tk not in seen:
-                seen.add(tk)
-                out.append((s.get("name", tk), tk))
+    for sec in data.get("sectors", []) or []:
+        for grp in ("domestic", "overseas"):
+            for s in sec.get(grp, []) or []:
+                tk = s.get("ticker")
+                if tk and tk not in seen:
+                    seen.add(tk)
+                    out.append((s.get("name", tk), tk))
     return out
 
 
@@ -89,7 +90,7 @@ def fetch_earnings_events(day: Optional[dt.date] = None,
             out.append(CalendarEvent(
                 title=f"실적발표 예정: {name}", category="실적",
                 note="발표 전후 변동성 확대 가능 — 미리 대응 계획 점검",
-                days_until=diff))
+                days_until=diff, impact="⚡"))
     out.sort(key=lambda e: e.days_until)
     return out
 

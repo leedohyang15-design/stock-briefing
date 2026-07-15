@@ -117,12 +117,13 @@ def summarize_indices_comment(plain_lines: List[str]) -> str:
     client = _client()
     if client:
         prompt = (
-            "다음은 국내·해외 주요 지수와 원/달러 환율의 전일 대비 등락이다.\n"
+            "다음은 국내·해외 주요 지수, 원/달러 환율, 그리고 안전자산·원자재"
+            "(금·WTI 유가·미 장기국채 TLT·미 단기국채 SHY)의 전일 대비 등락이다.\n"
             f"{body}\n\n"
             "이 흐름을 바탕으로 '오늘 국내 증시 관전 포인트'를 3문장으로 입체적으로 분석하라.\n"
             "1) 간밤 미국 증시가 오늘 국내 증시(특히 반도체·성장주)에 줄 영향,\n"
-            "2) 원/달러 환율의 기술적 흐름 — 최근 방향성과 주요 지지선/저항선 이탈 여부를 언급하고, "
-            "그것이 외국인 수급(순매수/순매도)에 미칠 영향을 반드시 한 문장으로 짚어라,\n"
+            "2) 원/달러 환율의 기술적 흐름과 외국인 수급 영향을 한 문장으로, "
+            "그리고 금·유가·미 국채(안전자산)의 방향으로 본 위험선호/위험회피 심리를 한 문장으로 짚어라,\n"
             "3) 종합적으로 오늘 대응 시 유의점.\n"
             "인사말·머리말·단순 수치 나열은 하지 말고, 전문가답게 완결된 문장으로만 써라. "
             "매수/매도 권유는 금지."
@@ -131,6 +132,39 @@ def summarize_indices_comment(plain_lines: List[str]) -> str:
         if out:
             return out
     return "간밤 지수 흐름을 참고해 오늘 시장 대응에 유의하세요."
+
+
+# ── 🐜 체크포인트: 오늘 시장 한 줄 요약 ──────────────────
+def summarize_market_oneliner(index_lines: List[str], sectors) -> str:
+    """오늘 시장을 한 문장으로 요약.
+    예: '미 반도체 훈풍에 삼성·하이닉스 동반 강세 (AI·반도체 주도)'."""
+    def _fallback() -> str:
+        if sectors:
+            g = sectors[0]
+            return f"{g.name} 주도 ({g.label})"
+        return "오늘 시장 흐름을 참고해 대응에 유의하세요."
+
+    client = _client()
+    if not client or not sectors:
+        return _fallback()
+    idx = "\n".join(index_lines)
+    sec = "\n".join(
+        f"- {g.name} ({g.label}): "
+        + ", ".join(f"{s.name} {s.change_pct:+.1f}%" for s in g.stocks if getattr(s, "ok", True))
+        for g in sectors[:4]
+    )
+    prompt = (
+        "다음은 오늘 국내외 지수·환율·안전자산과 주도 섹터/종목 등락이다.\n"
+        f"[지수·자산]\n{idx}\n[섹터]\n{sec}\n\n"
+        "이걸 바탕으로 '오늘 시장의 핵심'을 딱 한 문장(35자 내외)으로 요약하라. "
+        "가장 주도적인 흐름과 그 원인을 압축해서. "
+        "예) 미 반도체 훈풍에 삼성·하이닉스 동반 강세 (AI·반도체 주도). "
+        "머리말·수치나열·매수매도 권유 금지. 한 문장만 출력."
+    )
+    out = _complete(client, prompt, max_tokens=120)
+    if out:
+        return out.strip().splitlines()[0].strip()
+    return _fallback()
 
 
 # ── 섹션 2: 테마 그룹별 원인 분석 (🔍 원인 분석) ──────────
