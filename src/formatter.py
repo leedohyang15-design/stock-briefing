@@ -188,14 +188,18 @@ def _tldr_lines(b: Briefing) -> List[str]:
     elif fo_sell:
         out.append(f"🔴 외국인 순매도 우위: {fo_sell[0].name} 등")
 
-    # 4) 금일 일정 (시장 개장/폐장 외의 '주목' 일정 위주)
-    notable = [e for e in b.calendar_events
-               if e.days_until == 0 and e.category != "시장"]
+    # 4) 금일 일정 (중요도 높은 순으로 최대 3개)
+    _rank = {"🔥": 0, "⚡": 1, "❄️": 2}
+    notable = sorted(
+        (e for e in b.calendar_events if e.days_until == 0 and e.category != "시장"),
+        key=lambda e: _rank.get(getattr(e, "impact", ""), 3))
     if notable:
-        bits = " · ".join(e.title.replace("실적발표 예정: ", "실적 ") for e in notable[:3])
+        bits = " · ".join(
+            f"{getattr(e, 'impact', '')}{e.title.replace('실적발표: ', '실적 ')}".strip()
+            for e in notable[:3])
         out.append(f"🗓️ 금일 일정: {bits}")
     else:
-        out.append("🗓️ 금일: 특이 지표·실적 없음 (정규장 일정만)")
+        out.append("🗓️ 금일: 예정된 주요 지표·실적 없음")
 
     return out
 

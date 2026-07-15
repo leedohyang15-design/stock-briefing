@@ -45,10 +45,40 @@ def _watchlist_stocks() -> List[Tuple[str, str]]:
     return out
 
 
-def _next_earnings_date(ticker: str) -> Optional[dt.date]:
-    """yfinance 로 다음 실적발표(예정)일 1건. 없거나 실패 시 None."""
+def _market_cap(tk) -> Optional[float]:
+    """yfinance fast_info 에서 시가총액(종목 통화 기준). 실패 시 None."""
     try:
-        cal = yf.Ticker(ticker).calendar
+        fi = tk.fast_info
+    except Exception:  # noqa: BLE001
+        return None
+    for k in ("market_cap", "marketCap"):
+        try:
+            v = fi[k] if hasattr(fi, "__getitem__") else None
+        except Exception:  # noqa: BLE001
+            v = None
+        if not v:
+            v = getattr(fi, k, None)
+        if v:
+            try:
+                return float(v)
+            except (TypeError, ValueError):
+                pass
+    return None
+
+
+def _impact_by_cap(mc: Optional[float], is_krw: bool) -> str:
+    """시가총액 기준 중요도: 🔥 초대형 / ⚡ 대형 / ❄️ 그 외. (불명 시 ⚡)"""
+    if mc is None:
+        return "⚡"
+    if is_krw:  # 원화 시총 (코스피/코스닥)
+        return "🔥" if mc >= 50e12 else ("⚡" if mc >= 5e12 else "❄️")
+    return "🔥" if mc >= 100e9 else ("⚡" if mc >= 10e9 else "❄️")  # 달러 시총
+
+
+def _next_earnings_date(tk) -> Optional[dt.date]:
+    """yfinance Ticker 로 다음 실적발표(예정)일 1건. 없거나 실패 시 None."""
+    try:
+        cal = tk.calendar
     except Exception:  # noqa: BLE001
         return None
 
@@ -82,16 +112,21 @@ def fetch_earnings_events(day: Optional[dt.date] = None,
     day = day or today_kst()
     out: List[CalendarEvent] = []
     for name, ticker in _watchlist_stocks():
-        ed = _next_earnings_date(ticker)
+        try:
+            tk = yf.Ticker(ticker)
+        except Exception:  # noqa: BLE001
+            continue
+        ed = _next_earnings_date(tk)
         if ed is None:
             continue
         diff = (ed - day).days
         if 0 <= diff <= lookahead:
+            impact = _impact_by_cap(_market_cap(tk), ticker.endswith((".KS", ".KQ")))
             out.append(CalendarEvent(
-                title=f"실적발표 예정: {name}", category="실적",
+                title=f"실적발표: {name}", category="실적",
                 note="발표 전후 변동성 확대 가능 — 미리 대응 계획 점검",
-                days_until=diff, impact="⚡"))
-    out.sort(key=lambda e: e.days_until)
+                days_until=diff, impact=impact))
+    out.sort(key=lambda e: (e.days_until, {"🔥": 0, "⚡": 1, "❄️": 2}.get(e.impact, 3)))
     return out
 
 
