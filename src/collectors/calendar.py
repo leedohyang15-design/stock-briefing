@@ -26,13 +26,39 @@ _CONFIG_PATH = os.path.join(
 @dataclass
 class CalendarEvent:
     title: str
-    category: str  # "매크로" | "락업해제" | "기타"
+    category: str  # "시장" | "매크로" | "실적" | "락업해제" | "기타"
     note: Optional[str] = None
     days_until: int = 0  # 오늘로부터 며칠 뒤 (0=오늘)
+    time: str = ""       # 금일 시간표용 (예: "09:00"). 없으면 빈 문자열
+    impact: str = ""     # 중요도 아이콘 (🔥 높음 / ⚡ 보통 / ❄️ 낮음)
 
     @property
     def dlabel(self) -> str:
         return "오늘" if self.days_until == 0 else f"D-{self.days_until}"
+
+
+def _us_in_dst(d: dt.date) -> bool:
+    """미국 서머타임(DST) 여부: 3월 둘째 일요일 ~ 11월 첫째 일요일."""
+    mar1 = dt.date(d.year, 3, 1)
+    dst_start = mar1 + dt.timedelta(days=(6 - mar1.weekday()) % 7 + 7)  # 둘째 일요일
+    nov1 = dt.date(d.year, 11, 1)
+    dst_end = nov1 + dt.timedelta(days=(6 - nov1.weekday()) % 7)        # 첫째 일요일
+    return dst_start <= d < dst_end
+
+
+def today_market_events(day: dt.date) -> List[CalendarEvent]:
+    """금일(오늘) 증시 시간표 — 시장 개장·폐장은 매일 확정적이라 소스 없이 생성."""
+    us_open = "22:30" if _us_in_dst(day) else "23:30"   # 미 정규장 09:30 ET → KST
+    us_close = "05:00" if _us_in_dst(day) else "06:00"  # 16:00 ET → 익일 KST
+    return [
+        CalendarEvent("국내 증시 개장 (KOSPI·KOSDAQ)", "시장", days_until=0,
+                      time="09:00", impact="🔥"),
+        CalendarEvent("국내 증시 폐장", "시장", days_until=0, time="15:30", impact="🔥"),
+        CalendarEvent("미국 증시 개장 (정규장)", "시장", days_until=0,
+                      time=us_open, impact="⚡"),
+        CalendarEvent("미국 증시 폐장", "시장", days_until=0,
+                      time=f"{us_close}(익일)", impact="⚡"),
+    ]
 
 
 def _match_recurring(rule: dict, day: dt.date) -> bool:
@@ -86,7 +112,7 @@ def fetch_macro_events(day: Optional[dt.date] = None) -> List[CalendarEvent]:
             if d in window:
                 events.append(CalendarEvent(
                     title=item["title"], category="매크로",
-                    note=item.get("note"), days_until=(d - day).days))
+                    note=item.get("note"), days_until=(d - day).days, impact="🔥"))
         except Exception as e:  # noqa: BLE001
             print(f"[calendar] fixed 항목 처리 실패: {e}")
 
@@ -98,7 +124,7 @@ def fetch_macro_events(day: Optional[dt.date] = None) -> List[CalendarEvent]:
                 if _match_recurring(rule, d):
                     events.append(CalendarEvent(
                         title=item["title"], category="매크로",
-                        note=item.get("note"), days_until=(d - day).days))
+                        note=item.get("note"), days_until=(d - day).days, impact="🔥"))
                     break  # 창 내 가장 가까운 1회만
         except Exception as e:  # noqa: BLE001
             print(f"[calendar] recurring 항목 처리 실패: {e}")
@@ -118,9 +144,10 @@ def fetch_lockup_releases(day: Optional[dt.date] = None) -> List[CalendarEvent]:
 
 
 def fetch_calendar(day: Optional[dt.date] = None) -> List[CalendarEvent]:
-    """섹션 3 통합 수집: 매크로 일정 + 락업 해제."""
+    """섹션 4 통합 수집: 금일 증시 시간표 + 매크로 일정 + 락업 해제."""
     day = day or today_kst()
-    events = fetch_macro_events(day)
+    events = today_market_events(day)      # 금일 개장·폐장 (항상 표시)
+    events.extend(fetch_macro_events(day))
     events.extend(fetch_lockup_releases(day))
     return events
 

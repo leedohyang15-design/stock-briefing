@@ -17,7 +17,7 @@ from .holidays_kr import (
 )
 from . import formatter, sender, summarizer
 from .collectors import calendar as cal_collector
-from .collectors import earnings, flows, hot_sectors, indices, issues, watchlist
+from .collectors import earnings, flows, indices, issues, sectors
 
 
 def _safe(label, fn, default):
@@ -40,10 +40,7 @@ def run(force: bool = False) -> int:
 
     # ── 1. 수집 (부분 실패 허용) ──────────────────────────
     idx_quotes = _safe("지수/환율", indices.fetch_indices, [])
-    big_sectors = _safe("빅 섹터(국내+미국 큐레이션)", watchlist.fetch_theme_groups, [])
-    # 트렌딩 테마만 사용 (기타 강세 소형주 섹션은 제거됨)
-    trending_themes, _ = _safe(
-        "트렌딩 테마", lambda: hot_sectors.fetch_trending(3, 2, 6), ([], []))
+    big_sectors = _safe("주도 섹터(거래대금 상위 선별)", sectors.fetch_sector_groups, [])
     top_issues = _safe("주요 이슈", lambda: issues.fetch_top_issues(3), [])
     cal_events = _safe("일정/리스크", lambda: cal_collector.fetch_calendar(today), [])
     # 워치리스트 종목의 임박한 실적발표 예정일을 일정에 합침
@@ -61,10 +58,14 @@ def run(force: bool = False) -> int:
     # ── 2. 요약 (LLM 또는 폴백) ───────────────────────────
     indices_comment = summarizer.summarize_indices_comment(indices.to_plain_lines(idx_quotes))
     _safe("빅 섹터 원인분석", lambda: summarizer.annotate_theme_summaries(big_sectors, flavor="big"), None)
-    _safe("트렌딩 원인분석", lambda: summarizer.annotate_theme_summaries(trending_themes, flavor="trending"), None)
     # 빅 섹터 종목의 개별 등락 원인을 1회 호출로 채움
     _safe("종목별 등락 원인", lambda: summarizer.annotate_stock_reasons(big_sectors), None)
-    calendar_summary = summarizer.summarize_calendar(cal_collector.to_plain_lines(cal_events))
+    # 🐜 체크포인트용 '오늘 시장 한 줄 요약'
+    market_oneliner = _safe(
+        "오늘의 핵심 한 줄",
+        lambda: summarizer.summarize_market_oneliner(
+            indices.to_plain_lines(idx_quotes), big_sectors), "")
+    # [4] 일정은 구조화 캘린더로 렌더 (LLM 미사용 — 결정론적·할당량 절약)
 
     # ── 3. 포맷 ───────────────────────────────────────────
     briefing = formatter.Briefing(
@@ -73,9 +74,9 @@ def run(force: bool = False) -> int:
         index_quotes=idx_quotes,
         indices_comment=indices_comment,
         theme_groups=big_sectors,
-        trending_themes=trending_themes,
+        market_oneliner=market_oneliner,
         issues=top_issues,
-        calendar_summary=calendar_summary,
+        calendar_events=cal_events,
         value_top=value_top,
         net_buy=net_buy,
         net_sell=net_sell,
