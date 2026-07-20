@@ -25,7 +25,7 @@ class Briefing:
     today: dt.date
     index_quotes: list              # 섹션 1 원본 (IndexQuote: .group/.name/.value/.change_pct/.arrow)
     indices_comment: str            # 섹션 1 💡 관전 포인트
-    megacaps: list = field(default_factory=list)  # 🏢 핵심 대형주 (시총 상위 벨웨더, Stock — 항상 고정 노출)
+    megacaps: list = field(default_factory=list)  # 🏢 핵심 대형주 (시총 상위 벨웨더, MegaGroup[] — 밸류체인 그룹별 고정 노출)
     theme_groups: list = field(default_factory=list)  # 섹션2 🏢 주도 섹터 (ThemeGroup, 그날 강한 순 정렬)
     trending_themes: list = field(default_factory=list)  # (미사용/하위호환)
     market_oneliner: str = ""       # 🐜 체크포인트 '오늘의 핵심' 한 줄
@@ -94,46 +94,35 @@ def _pct_text(v: float) -> str:
     return f"{_arrow(v)} {_sign(v)}{v:.2f}%"
 
 
-# ── 🏢 핵심 대형주 (시총 상위 벨웨더 — 통화로 국내/미국 구분) ──
-def _megacaps_split(stocks):
-    """대형주 리스트를 (국내, 미국)으로 분리. yaml 순서 유지."""
-    kr = [s for s in stocks if getattr(s, "currency", "KRW") != "USD"]
-    us = [s for s in stocks if getattr(s, "currency", "KRW") == "USD"]
-    return kr, us
-
-
-def _megacaps_html(stocks) -> str:
-    """등락률 색상 포함, 국내/미국 라벨로 묶어 렌더. 없으면 빈 문자열."""
-    if not stocks:
+# ── 🏢 핵심 대형주 (시총 상위 벨웨더 — 밸류체인 그룹별) ──
+def _megacaps_html(groups) -> str:
+    """그룹명 라벨로 묶어 등락률 색상 포함 렌더. 없으면 빈 문자열."""
+    if not groups:
         return ""
-    kr, us = _megacaps_split(stocks)
-
-    def _grp(label: str, rows) -> str:
-        if not rows:
-            return ""
+    out = []
+    for g in groups:
+        if not getattr(g, "stocks", None):
+            continue
         lis = "".join(
             f"<div style='margin:3px 0;'>{_esc(s.name)}: {_stock_price(s)} {_pct_html(s.change_pct)}</div>"
-            for s in rows
+            for s in g.stocks
         )
-        return (
+        out.append(
             f"<div style='margin:8px 0 4px;'>"
             f"<span style='display:inline-block;font-size:11px;font-weight:600;color:#fff;"
-            f"background:#495057;border-radius:4px;padding:1px 8px;margin-bottom:4px;'>{label}</span>"
+            f"background:#495057;border-radius:4px;padding:1px 8px;margin-bottom:4px;'>{_esc(g.name)}</span>"
             f"{lis}</div>"
         )
+    return "".join(out)
 
-    return _grp("국내", kr) + _grp("미국", us)
 
-
-def _megacaps_text_lines(stocks) -> List[str]:
-    if not stocks:
-        return []
-    kr, us = _megacaps_split(stocks)
+def _megacaps_text_lines(groups) -> List[str]:
     lines: List[str] = []
-    for label, rows in (("국내", kr), ("미국", us)):
-        if rows:
-            lines.append(f"· {label}: " + ", ".join(
-                f"{s.name} {_stock_price(s)} {_pct_text(s.change_pct)}" for s in rows))
+    for g in groups or []:
+        if not getattr(g, "stocks", None):
+            continue
+        lines.append(f"· {g.name}: " + ", ".join(
+            f"{s.name} {_stock_price(s)} {_pct_text(s.change_pct)}" for s in g.stocks))
     return lines
 
 
