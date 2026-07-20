@@ -25,7 +25,8 @@ class Briefing:
     today: dt.date
     index_quotes: list              # 섹션 1 원본 (IndexQuote: .group/.name/.value/.change_pct/.arrow)
     indices_comment: str            # 섹션 1 💡 관전 포인트
-    theme_groups: list              # 섹션2 🏢 주도 섹터 (ThemeGroup, 그날 강한 순 정렬)
+    megacaps: list = field(default_factory=list)  # 🏢 핵심 대형주 (시총 상위 벨웨더, Stock — 항상 고정 노출)
+    theme_groups: list = field(default_factory=list)  # 섹션2 🏢 주도 섹터 (ThemeGroup, 그날 강한 순 정렬)
     trending_themes: list = field(default_factory=list)  # (미사용/하위호환)
     market_oneliner: str = ""       # 🐜 체크포인트 '오늘의 핵심' 한 줄
     value_top: list = field(default_factory=list)   # 섹션2 💰 거래대금 상위 (Stock)
@@ -91,6 +92,49 @@ def _amt(v, sign: str) -> str:
 def _pct_text(v: float) -> str:
     """📈/📉 이모지 + 등락률 (텍스트)."""
     return f"{_arrow(v)} {_sign(v)}{v:.2f}%"
+
+
+# ── 🏢 핵심 대형주 (시총 상위 벨웨더 — 통화로 국내/미국 구분) ──
+def _megacaps_split(stocks):
+    """대형주 리스트를 (국내, 미국)으로 분리. yaml 순서 유지."""
+    kr = [s for s in stocks if getattr(s, "currency", "KRW") != "USD"]
+    us = [s for s in stocks if getattr(s, "currency", "KRW") == "USD"]
+    return kr, us
+
+
+def _megacaps_html(stocks) -> str:
+    """등락률 색상 포함, 국내/미국 라벨로 묶어 렌더. 없으면 빈 문자열."""
+    if not stocks:
+        return ""
+    kr, us = _megacaps_split(stocks)
+
+    def _grp(label: str, rows) -> str:
+        if not rows:
+            return ""
+        lis = "".join(
+            f"<div style='margin:3px 0;'>{_esc(s.name)}: {_stock_price(s)} {_pct_html(s.change_pct)}</div>"
+            for s in rows
+        )
+        return (
+            f"<div style='margin:8px 0 4px;'>"
+            f"<span style='display:inline-block;font-size:11px;font-weight:600;color:#fff;"
+            f"background:#495057;border-radius:4px;padding:1px 8px;margin-bottom:4px;'>{label}</span>"
+            f"{lis}</div>"
+        )
+
+    return _grp("국내", kr) + _grp("미국", us)
+
+
+def _megacaps_text_lines(stocks) -> List[str]:
+    if not stocks:
+        return []
+    kr, us = _megacaps_split(stocks)
+    lines: List[str] = []
+    for label, rows in (("국내", kr), ("미국", us)):
+        if rows:
+            lines.append(f"· {label}: " + ", ".join(
+                f"{s.name} {_stock_price(s)} {_pct_text(s.change_pct)}" for s in rows))
+    return lines
 
 
 _INDEX_ORDER = ["국내", "해외", "환율", "안전자산·원자재"]
@@ -309,6 +353,11 @@ def build_text(b: Briefing) -> str:
     for line in _index_lines(b.index_quotes) or ["- 데이터 없음"]:
         L.append(f"- {line}")
     L.append(f"💡 {b.indices_comment}")
+    mega_lines = _megacaps_text_lines(b.megacaps)
+    if mega_lines:
+        L.append("")
+        L.append("🏢 핵심 대형주 (시총 상위 벨웨더 · 전일 등락)")
+        L.extend(mega_lines)
     L.append("")
     L.append("🔥 [2] 오늘의 주도 섹터 & 국내외 핵심 종목")
     L.append("")
@@ -414,6 +463,9 @@ def _sector_color(label: str, avg: float) -> str:
 def build_html(b: Briefing) -> str:
     # 섹션 1 (그룹 라벨 + 종목당 한 줄, 등락률 색상)
     idx_html = _index_html_blocks(b.index_quotes)
+
+    # 🏢 핵심 대형주 (시총 상위 벨웨더 — 마켓 뷰 바로 아래 고정 노출)
+    mega_html = _megacaps_html(b.megacaps)
 
     # 섹션 2-A · 🏢 오늘의 주도 섹터 TOP 3 (그날 강한 섹터 상위 3개만 상세)
     big_blocks = []
@@ -548,6 +600,10 @@ def build_html(b: Briefing) -> str:
   <div style="color:#333;line-height:1.5;font-size:14px;">{idx_html}</div>
   <div style="color:#555;font-size:13px;margin-top:8px;background:#f8f9fa;padding:8px 10px;border-radius:6px;">
     💡 {_nl2br(b.indices_comment)}</div>
+
+  {(h2("🏢 핵심 대형주 <span style='font-size:13px;color:#888;'>(시총 상위 벨웨더 · 전일 등락)</span>")
+    + "<div style='color:#888;font-size:13px;margin-bottom:4px;'>주도 섹터와 달리 매일 고정으로 추적하는 시총 최상위 종목입니다.</div>"
+    + "<div style='color:#333;line-height:1.5;font-size:14px;'>" + mega_html + "</div>") if mega_html else ""}
 
   {h2("🔥 [2] 오늘의 주도 섹터 &amp; 주목 종목")}
   <div style="color:#888;font-size:13px;">그날 가장 강했던 주도 섹터 TOP 3와 그 외 섹터 요약입니다.</div>

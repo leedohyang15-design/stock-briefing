@@ -17,7 +17,7 @@ from .holidays_kr import (
 )
 from . import formatter, sender, summarizer
 from .collectors import calendar as cal_collector
-from .collectors import earnings, flows, indices, issues, sectors
+from .collectors import earnings, flows, indices, issues, megacaps, sectors
 
 
 def _safe(label, fn, default):
@@ -40,6 +40,7 @@ def run(force: bool = False) -> int:
 
     # ── 1. 수집 (부분 실패 허용) ──────────────────────────
     idx_quotes = _safe("지수/환율", indices.fetch_indices, [])
+    mega_stocks = _safe("핵심 대형주(시총 벨웨더)", megacaps.fetch_megacaps, [])
     big_sectors = _safe("주도 섹터(거래대금 상위 선별)", sectors.fetch_sector_groups, [])
     top_issues = _safe("주요 이슈", lambda: issues.fetch_top_issues(3), [])
     cal_events = _safe("일정/리스크", lambda: cal_collector.fetch_calendar(today), [])
@@ -73,6 +74,7 @@ def run(force: bool = False) -> int:
         today=today,
         index_quotes=idx_quotes,
         indices_comment=indices_comment,
+        megacaps=mega_stocks,
         theme_groups=big_sectors,
         market_oneliner=market_oneliner,
         issues=top_issues,
