@@ -1,0 +1,90 @@
+# AI 단타 트레이딩 설정 (README_TRADER.md 참고)
+# 주말 복기 에이전트가 변경안을 만들고, 사용자가 텔레그램 /apply 로 승인하면
+# version 이 1 올라가며 이 파일이 갱신된다. 이전 버전은 DB(config_versions)에 남는다.
+version: 1
+
+# ── 리스크 한도 (리스크 매니저가 강제, 주간 업데이트로 바뀌지 않음) ──
+risk:
+  max_order_krw: 100000        # 1회 주문 최대 금액
+  max_positions: 2             # 동시 보유 종목 수
+  max_entries_per_day: 5       # 하루 신규 매수 횟수
+  daily_loss_limit_pct: 3.0    # 일 손실 한도 (시작 평가금 대비 %) → 도달 시 당일 매매 중단
+  risk_per_trade_pct: 1.0      # 손절 시 손실 = 계좌의 1% 가 되도록 수량 결정 (ORB 논문)
+  one_entry_per_stock: true    # 같은 종목 하루 1회만 진입
+  entry_end: "15:10"           # 신규 진입 마감
+  flatten_time: "15:15"        # 전량 청산 시각 (15:20 동시호가 전)
+
+# ── 전략 (출처: Zarattini·Barbon·Aziz ORB / Stocks in Play) ──
+strategy:
+  orb_minutes: 5               # 시가범위 길이(분). 논문 기본값 5분
+  require_bullish_or: true     # 시가범위 캔들이 양봉일 때만 매수 (논문: 방향 = 첫 캔들 방향, 국내는 매수만)
+  stop_atr_mult: 0.10          # 손절 = 진입가 - 14일 ATR × 0.10 (논문)
+  atr_days: 14
+  relvol_min: 1.0              # 상대거래량 최소 (논문: 1 이상)
+  relvol_top_n: 10             # 상대거래량 상위 N 종목만 거래 (논문 20, API 호출량 고려 10)
+  open_volume_share: 0.05      # 하루 거래량 중 시가범위 구간이 차지하는 평균 비율(추정치). 주간 복기에서 실측값으로 갱신
+  min_price: 1000              # 최소 주가(원)
+  min_avg_value_krw: 3000000000  # 14일 평균 거래대금 최소 (30억)
+  min_atr_pct: 2.0             # 14일 ATR / 주가 최소 (%)
+  imbalance_trades: 30         # 주문 불균형 계산에 쓰는 최근 체결 수
+  imbalance_min: 0.0           # (매수주도-매도주도)/(합) 가 이 값 초과일 때만 진입 (Chordia·Subrahmanyam)
+  static_vi_pct: 10.0          # 정적 VI 발동 기준 (기준가 대비 ±10%)
+  vi_guard_pct: 1.0            # 정적 VI 발동가까지 이 % 이내면 진입 금지
+  regime_early_min_pct: -0.3   # 09:30 전: 지수 등락률이 이 값 미만이면 신규 진입 중단
+  regime_first30_min_pct: 0.0  # 09:30 이후: 지수 첫 30분 수익률이 이 값 미만이면 신규 진입 중단 (Gao 외)
+
+# ── 타임머신 (릴스: day-trader-skill 방식) ──
+timemachine:
+  enabled: true
+  lookback_days: 59
+  min_days: 10                 # 과거 데이터가 이보다 적으면 '참고'로만 표시(거부 안 함)
+  paths: 10000
+  seed: 19
+  reject_if_ev_below_pct: 0.0  # 시뮬레이션 기대수익(비용 차감, %)이 이 값 이하이면 거부
+
+# ── 뉴스·공시 확인 (Lopez-Lira·Tang: 악재 거부용) ──
+news:
+  lookback_hours: 24
+  llm_required: true           # LLM 판정 실패 시 거부 (보수적)
+  reject_keywords: [유상증자, 전환사채, 신주인수권부사채, 감자, 거래정지, 매매정지, 상장폐지, 관리종목, 불성실공시, 횡령, 배임, 감사의견, 투자주의환기, 투자경고, 투자위험, 단기과열, 소송, 압수수색, 대주주 매도, 블록딜]
+
+# ── 승인 ──
+approval:
+  mode: telegram               # telegram | auto (auto 는 드라이런에서만 허용)
+  timeout_sec: 180
+
+# ── 비용 (확인 필요: 증권사 수수료·거래세는 바뀔 수 있음) ──
+costs:
+  fee_pct: 0.015               # 매수·매도 각각
+  sell_tax_pct: 0.20           # 매도 시 거래세(농특세 포함)
+
+# ── 일정 ──
+schedule:
+  premarket_start: "08:00"
+  loop_interval_sec: 5
+  review_time: "15:40"
+
+# ── 한국투자증권 API ──
+# TR ID 는 자료마다 신규/구형이 엇갈려 둘 다 둔다. 신규가 거부되면 구형으로 1회 재시도한다.
+kis:
+  rate_per_sec_real: 15
+  rate_per_sec_mock: 2
+  tr:
+    real: {buy: TTTC0012U, sell: TTTC0011U, revise_cancel: TTTC0013U, balance: TTTC8434R, daily_ccld: TTTC0081R}
+    mock: {buy: VTTC0012U, sell: VTTC0011U, revise_cancel: VTTC0013U, balance: VTTC8434R, daily_ccld: VTTC0081R}
+    legacy_real: {buy: TTTC0802U, sell: TTTC0801U, revise_cancel: TTTC0803U, daily_ccld: TTTC8001R}
+    legacy_mock: {buy: VTTC0802U, sell: VTTC0801U, revise_cancel: VTTC0803U, daily_ccld: VTTC8001R}
+
+# ── 주간 업데이트 (과최적화 방지) ──
+weekly:
+  min_samples: 30              # 누적 거래 표본이 이보다 적으면 변경 제안 안 함
+  max_param_changes: 2         # 한 번에 바꾸는 파라미터 수
+  max_iterations: 3            # 손실 원인 분석 → 수정 → 재시험 반복 횟수
+  holdout_days: 5              # 최근 N 거래일은 검증 구간
+  levers:                      # 주간 에이전트가 바꿀 수 있는 값과 후보 (그 외는 못 바꿈)
+    orb_minutes: [5, 15, 30]
+    stop_atr_mult: [0.05, 0.10, 0.20]
+    relvol_min: [1.0, 2.0, 3.0]
+    vi_guard_pct: [1.0, 2.0, 3.0]
+    imbalance_min: [0.0, 0.1, 0.2]
+    entry_end: ["15:10", "14:00", "11:00"]

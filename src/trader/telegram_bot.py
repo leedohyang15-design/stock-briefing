@@ -1,0 +1,149 @@
+"""텔레그램: 알림, 매수 승인 버튼, 명령어 (/status /stop /flat /weekly /apply /hold /help).
+
+requests 로 롱폴링한다 (별도 라이브러리 없음). 승인은 등록된 chat_id 에서 온 것만 받는다.
+"""
+from __future__ import annotations
+
+import threading
+import time
+from dataclasses import dataclass
+from typing import Callable, Dict, Optional
+
+import requests
+
+
+@dataclass
+class Pending:
+    sid: int
+    created: float
+    message_id: Optional[int]
+    status: str = "pending"   # pending | approved | rejected | expired
+
+
+class Telegram:
+    def __init__(self, token: str, chat_id: str):
+        self.api = f"https://api.telegram.org/bot{token}"
+        self.chat_id = str(chat_id)
+        self.pending: Dict[int, Pending] = {}
+        self.commands: Dict[str, Callable[[str], Optional[str]]] = {}
+        self._offset = 0
+        self._stop = threading.Event()
+        self._lock = threading.Lock()
+        self._thread: Optional[threading.Thread] = None
+
+    @property
+    def enabled(self) -> bool:
+        return True
+
+    def _post(self, method: str, **payload) -> Dict:
+        try:
+            r = requests.post(f"{self.api}/{method}", json=payload, timeout=35)
+            return r.json()
+        except Exception as e:  # noqa: BLE001
+            print(f"[telegram] {method} 실패: {e}")
+            return {}
+
+    def send(self, text: str) -> Optional[int]:
+        res = self._post("sendMessage", chat_id=self.chat_id, text=text[:4000])
+        return (res.get("result") or {}).get("message_id")
+
+    def request_approval(self, sid: int, text: str) -> None:
+        kb = {"inline_keyboard": [[{"text": "매수", "callback_data": f"ok:{sid}"},
+                                   {"text": "거절", "callback_data": f"no:{sid}"}]]}
+        res = self._post("sendMessage", chat_id=self.chat_id, text=text[:4000], reply_markup=kb)
+        mid = (res.get("result") or {}).get("message_id")
+        with self._lock:
+            self.pending[sid] = Pending(sid, time.monotonic(), mid)
+
+    def approval_status(self, sid: int, timeout_sec: float) -> str:
+        with self._lock:
+            p = self.pending.get(sid)
+            if not p:
+                return "expired"
+            if p.status == "pending" and time.monotonic() - p.created > timeout_sec:
+                p.status = "expired"
+                self._edit_done(p, "⏱ 시간 초과로 취소됨")
+            return p.status
+
+    def _edit_done(self, p: Pending, note: str) -> None:
+        if p.message_id:
+            self._post("editMessageReplyMarkup", chat_id=self.chat_id, message_id=p.message_id,
+                       reply_markup={"inline_keyboard": []})
+            self._post("sendMessage", chat_id=self.chat_id, text=note, reply_to_message_id=p.message_id)
+
+    def on(self, command: str, fn: Callable[[str], Optional[str]]) -> None:
+        self.commands[command.lstrip("/")] = fn
+
+    def handle_update(self, u: Dict) -> None:
+        if "callback_query" in u:
+            cq = u["callback_query"]
+            chat = str(((cq.get("message") or {}).get("chat") or {}).get("id", ""))
+            self._post("answerCallbackQuery", callback_query_id=cq.get("id"))
+            if chat != self.chat_id:
+                return
+            kind, _, sid = str(cq.get("data", "")).partition(":")
+            with self._lock:
+                p = self.pending.get(int(sid)) if sid.isdigit() else None
+                if p and p.status == "pending":
+                    p.status = "approved" if kind == "ok" else "rejected"
+                    self._edit_done(p, "✅ 승인됨 → 주문 진행" if kind == "ok" else "❌ 거절됨")
+            return
+        msg = u.get("message") or {}
+        if str((msg.get("chat") or {}).get("id", "")) != self.chat_id:
+            return
+        text = (msg.get("text") or "").strip()
+        if not text.startswith("/"):
+            return
+        cmd, _, arg = text[1:].partition(" ")
+        fn = self.commands.get(cmd.split("@")[0])
+        reply = fn(arg.strip()) if fn else "명령: /status /stop /flat /weekly /apply <번호> /hold <번호> /help"
+        if reply:
+            self.send(reply)
+
+    def _loop(self) -> None:
+        while not self._stop.is_set():
+            try:
+                r = requests.get(f"{self.api}/getUpdates", params={"offset": self._offset, "timeout": 25}, timeout=35)
+                for u in r.json().get("result", []):
+                    self._offset = u["update_id"] + 1
+                    try:
+                        self.handle_update(u)
+                    except Exception as e:  # noqa: BLE001
+                        print(f"[telegram] 처리 실패: {e}")
+            except Exception as e:  # noqa: BLE001
+                print(f"[telegram] 폴링 실패: {e}")
+                time.sleep(3)
+
+    def start(self) -> None:
+        if self._thread is None:
+            self._thread = threading.Thread(target=self._loop, daemon=True)
+            self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+
+
+class NullTelegram:
+    """텔레그램 미설정 (드라이런 전용): 승인은 자동, 알림은 콘솔."""
+    enabled = False
+
+    def __init__(self):
+        self.commands = {}
+
+    def send(self, text: str):
+        print("[알림]", text.replace("\n", " | "))
+
+    def request_approval(self, sid: int, text: str) -> None:
+        print("[승인 자동]", text.replace("\n", " | "))
+
+    def approval_status(self, sid: int, timeout_sec: float) -> str:
+        return "approved"
+
+    def on(self, command, fn):
+        self.commands[command.lstrip("/")] = fn
+
+    def start(self):
+        pass
+
+    def stop(self):
+        pass

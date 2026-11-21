@@ -1,0 +1,155 @@
+# AI 멀티에이전트 단타 트레이더 (한국투자증권 · 국내주식)
+
+에이전트 18개가 장전 분석 → 장중 매매 → 복기를 나눠 맡습니다. **매수는 텔레그램 버튼으로 사용자가 승인해야만** 주문이 나갑니다.
+손절과 장마감 청산은 승인 없이 자동으로 실행됩니다.
+
+> ⚠️ 수익은 보장되지 않습니다. 연구 결과 개인 데이트레이더 대부분은 비용을 빼면 손실을 봅니다
+> ([대만 연구](https://faculty.haas.berkeley.edu/odean/papers/day%20traders/Day%20Trading%20Skill%20110523.pdf),
+> [브라질 연구](https://ideas.repec.org/p/fgv/eesptd/525.html)). 소액으로 시작하세요. 손실 책임은 사용자에게 있습니다.
+
+---
+
+## 1. 무엇이 어떻게 판단하나
+
+| 팀 | 에이전트 | 하는 일 | 근거 |
+|---|---|---|---|
+| A. 장전 (08:00, LLM) | 1 매크로 · 2 시사·뉴스 · 3 공시 · 4 테마 · 5 수급 | 오늘 분위기, 악재 공시 종목 제외, 후보 정리 | [TradingAgents](https://arxiv.org/pdf/2412.20138) 팀 구조 |
+| | 6 강세론자 · 7 약세론자 | 후보 종목마다 사야 할 이유 / 사면 안 될 이유 | 〃 |
+| | 8 수석 트레이더(PM) | 관심종목 최대 10개, 공격성(low/normal/high) | 〃 |
+| B. 장중 (09:05~15:15) | 9 Stocks in Play | 평소보다 거래량이 크게 늘어난 종목 상위 N개 | [Zarattini·Barbon·Aziz](https://ideas.repec.org/p/chf/rpseri/rp2498.html) |
+| | 10 ORB 신호 | 시가범위(첫 5분) 양봉 + 상단 돌파 → 매수 신호 | 〃 |
+| | 11 주문 불균형 | 최근 체결 중 매수 주도가 더 많을 때만 | [Chordia·Subrahmanyam, JFE 2004](https://ideas.repec.org/p/cdl/anderf/qt34k8f3pv.html) |
+| | 12 실시간 뉴스·공시 | 악재(유상증자 등)면 거부. 매수 근거로는 안 씀 | [Lopez-Lira·Tang](https://arxiv.org/abs/2304.07619) |
+| | 13 시장 분위기 | 지수 첫 30분이 약하면 신규 진입 중단 | [Gao 외, JFE 2018](https://econpapers.repec.org/RePEc:eee:jfinec:v:129:y:2018:i:2:p:394-414) |
+| | 14 VI 감시 | 정적 VI 발동가 근처·단일가 중엔 진입 금지 | KRX 제도, [안일찬·라성채](https://www.earticle.net/Article/A304504) |
+| | 18 타임머신 | 남은 장을 10,000번 재생 → 기대수익이 0 이하면 거부 | [day-trader-skill](https://github.com/Jakeschincariol/day-trader-skill) 방식 |
+| | 15 리스크 매니저 | 한도 검사·수량 결정 (거부권만 가짐, LLM 없음) | |
+| | 16 주문 실행·청산 | 지정가 매수, 손절(ATR×0.1), 15:15 전량 청산 | ORB 논문 |
+| C. 복기 | 17 복기 | 평일 15:40 일일 리포트 / 토요일 주간 전략 업데이트 | 릴스: 손실 거래 원인 분석 루프 |
+
+**매수 1건이 되려면:** 9 → 10 통과 후 13 → 14 → 11 → 15 → 18 → 12 순서로 검사합니다(싼 검사부터, LLM은 마지막).
+하나라도 거부하면 사지 않고, 모두 통과하면 텔레그램에 [매수]/[거절] 버튼이 옵니다. 3분 안에 누르지 않으면 취소됩니다.
+
+신뢰도가 낮은 규칙(VWAP 필터, 체결강도 100, 20분 시간 청산, 수익 잠금 등)은 넣지 않았습니다.
+
+## 2. 준비물 (한 번만)
+
+1. **Python 3.12** — https://www.python.org/downloads/ (설치할 때 "Add python.exe to PATH" 체크)
+2. **한국투자증권 Open API 키**
+   - 한국투자증권 계좌 → [KIS Developers](https://apiportal.koreainvestment.com) 로그인 → API 신청
+   - 실전투자 **앱키(APP KEY)·앱시크릿(APP SECRET)**, 계좌번호(8자리-2자리)를 확인합니다.
+3. **텔레그램 봇** (실계좌는 필수)
+   - 텔레그램에서 `@BotFather` → `/newbot` → 이름 입력 → **토큰** 복사
+   - 만든 봇에게 아무 메시지나 보낸 뒤, 브라우저에서 `https://api.telegram.org/bot<토큰>/getUpdates` 를 열어
+     `"chat":{"id":123456789` 의 숫자를 **chat_id** 로 씁니다.
+4. (선택) **Gemini API 키**(무료) — https://aistudio.google.com/apikey . 없으면 장전 분석은 규칙 기반으로 대체되지만,
+   12번 뉴스 확인이 보수적으로 거부하므로 **사실상 필요합니다** (`config/trader.yaml` 의 `news.llm_required`).
+
+## 3. 설치
+
+```bash
+pip install -r requirements.txt
+```
+
+`.env.example` 을 `.env` 로 복사하고 아래를 채웁니다 (절대 GitHub 에 올리지 마세요):
+
+```
+KIS_APP_KEY=...
+KIS_APP_SECRET=...
+KIS_ACCOUNT=12345678-01
+KIS_ENV=real
+TELEGRAM_BOT_TOKEN=...
+TELEGRAM_CHAT_ID=...
+GEMINI_API_KEY=...
+```
+
+## 4. 실행 순서 (꼭 이 순서대로)
+
+**① 키 확인** — 토큰·현재가·잔고·분봉이 나오면 정상입니다.
+```bash
+python -m src.trader.kis_client --check
+```
+
+**② 키 없이 화면 미리보기 (선택)**
+```bash
+python -m src.trader.demo
+streamlit run src/trader/dashboard.py -- --demo
+```
+
+**③ 드라이런 (최소 반나절)** — 실제 시세, 가상 주문. 텔레그램 버튼도 실제로 옵니다.
+```bash
+python -m src.trader.run_day --dry-run
+```
+다른 창에서 대시보드를 엽니다 → http://localhost:8501
+```bash
+streamlit run src/trader/dashboard.py
+```
+
+**④ 실계좌** — 처음엔 `config/trader.yaml` 의 `max_order_krw` 를 3~5만원으로 낮추고 1~2회만 해 보세요.
+```bash
+python -m src.trader.run_day
+```
+첫 실주문 후 증권사 앱의 체결 내역과 대시보드 타임라인이 같은지 확인합니다.
+(주문 TR ID 는 신규 `TTTC0012U` 가 거부되면 구형 `TTTC0802U` 로 자동 재시도합니다.)
+
+## 5. 자동 실행 (윈도우 작업 스케줄러)
+
+| 작업 | 시간 | 실행 파일 |
+|---|---|---|
+| 평일 매매 | 월~금 07:55 | `scripts\run_trader.bat` (드라이런 기간엔 인수 `--dry-run`) |
+| 주간 복기 | 토요일 10:00 | `scripts\run_weekly.bat` |
+| 대시보드 | 필요할 때 | `scripts\dashboard.bat` |
+
+작업 스케줄러 → 기본 작업 만들기 → 트리거(매주, 요일 선택) → 프로그램 시작 → 위 .bat 파일.
+**전원 옵션에서 절전 모드를 "안 함"** 으로 바꾸세요. PC가 꺼지면 보유 종목이 방치되므로,
+매수 체결 알림이 오면 **증권사 앱에 손절 예약(스탑로스)** 을 함께 걸어두는 것을 권합니다.
+
+## 6. 텔레그램 명령
+
+| 명령 | 동작 |
+|---|---|
+| `/status` | 일 수익률·보유 종목·상태 |
+| `/stop` | 신규 매수 중단 (보유 종목은 규칙대로 관리) |
+| `/flat` | 전량 시장가 청산 + 중단 |
+| `/apply 3` · `/hold 3` | 주간 변경안 3번 적용 / 보류 (토·일, run_weekly 실행 중) |
+
+## 7. 주간 업데이트 (토요일)
+
+1. 그 주 일 수익률·승률·손익비·최대 손실일을 집계합니다.
+2. **에이전트 성적표**: 거부된 신호가 실제로 어떻게 됐는지(거부가 옳았는지)를 쌓인 분봉으로 채점합니다.
+3. **손실 거래 원인 분석 루프**: LLM이 손실 거래의 공통 원인을 찾아 수정안을 냅니다. 백테스트로 재시험하고, 이를 최대 3회 반복합니다.
+4. **과최적화 방지**: 과거 구간과 최근 5거래일 구간 **둘 다** 일 수익률이 좋아지고 표본이 30건 이상일 때만 제안합니다.
+   한 번에 최대 2개까지 바꾸고, 바꿀 수 있는 값은 `weekly.levers` 목록 안으로 제한됩니다(리스크 한도는 못 바꿈).
+5. 텔레그램으로 변경안이 오면 `/apply` 또는 `/hold` 를 보냅니다. 적용하면 `config/trader.yaml` 의 version 이 올라가고 월요일부터 반영됩니다.
+   되돌리기: `python -m src.trader.run_weekly --rollback <버전>`
+
+## 8. 리스크 한도 (`config/trader.yaml` → `risk`)
+
+- 1회 주문 최대 10만원 · 동시 보유 2종목 · 하루 매수 5회 (공격성 low 면 절반)
+- 손절 시 손실이 계좌의 1%가 되도록 수량을 정하되, 위 한도가 우선합니다
+- 일 손실 -3% 에 닿으면 당일 신규 매수 중단 · 15:10 이후 신규 진입 없음 · 15:15 전량 청산
+- 같은 종목은 하루 1회만 진입 · 승인 사이 가격이 1% 넘게 오르면 추격 매수하지 않음
+
+## 9. 알려진 한계
+
+- ORB·Stocks in Play 는 **미국 시장 연구**입니다. 한국 시장 검증 결과는 없어서, 매일 분봉을 `data/trader.db` 에 쌓아 주간 복기에서 직접 검증합니다.
+- 상대거래량은 "14일 평균 일거래량 × 시가범위 평균 비중(open_volume_share)" 으로 근사합니다. 주간 복기가 실측값으로 갱신을 제안합니다.
+- 백테스트는 주문 불균형·뉴스·타임머신·시장 분위기 필터를 재현하지 못합니다 (과거 체결·뉴스 데이터 없음).
+- 타임머신은 KIS 과거 분봉 API(`inquire-time-dailychartprice`)로 59거래일을 받습니다. 받지 못하면 쌓인 데이터가 10일이 될 때까지 '참고'만 합니다.
+- 공매도는 하지 않습니다(매수만). 비용은 수수료 0.015%×2 + 거래세 0.20% 로 가정합니다 — 실제 요율을 확인해 `costs` 를 고치세요.
+
+## 10. 파일 구조
+
+```
+src/trader/
+  kis_client.py   한국투자증권 REST (토큰 캐시, 속도 제한, 주문 TR 폴백)
+  run_day.py      평일 오케스트레이터 (--dry-run)
+  run_weekly.py   주간 복기·변경안·적용/보류/롤백
+  dashboard.py    Streamlit 한 화면 대시보드 (보기 전용)
+  agents/premarket.py  1~8 · agents/intraday.py 9~14 · agents/timemachine.py 18 · agents/review.py 17
+  risk.py 15 · executor.py 16 · strategy.py 계산식 · backtest.py · journal.py(SQLite) · telegram_bot.py
+config/trader.yaml   모든 설정값
+tests/trader/        pytest (가짜 시세로 하루 전체 흐름 포함)
+```
+
+테스트: `python -m pytest tests/trader`
