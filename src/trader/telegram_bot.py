@@ -38,10 +38,13 @@ class Telegram:
     def _post(self, method: str, **payload) -> Dict:
         try:
             r = requests.post(f"{self.api}/{method}", json=payload, timeout=35)
-            return r.json()
+            body = r.json()
         except Exception as e:  # noqa: BLE001
-            print(f"[telegram] {method} 실패: {e}")
+            print(f"[telegram] {method} 실패 (인터넷 연결 또는 api.telegram.org 차단): {e}")
             return {}
+        if not body.get("ok", False):
+            print(f"[telegram] {method} 거부: {body.get('error_code')} {body.get('description')} → {explain(body)}")
+        return body
 
     def send(self, text: str) -> Optional[int]:
         res = self._post("sendMessage", chat_id=self.chat_id, text=text[:4000])
@@ -123,6 +126,60 @@ class Telegram:
         self._stop.set()
 
 
+def explain(body: Dict) -> str:
+    """텔레그램 오류를 쉬운 말로."""
+    code, desc = body.get("error_code"), str(body.get("description", "")).lower()
+    if code == 401:
+        return "봇 토큰이 틀렸습니다. BotFather 대화방에서 토큰을 다시 복사해 .env 의 TELEGRAM_BOT_TOKEN 에 넣으세요."
+    if code == 404:
+        return "봇 토큰 형식이 틀렸습니다 (숫자:영문 형태여야 함, 앞뒤 공백·따옴표 제거)."
+    if "chat not found" in desc:
+        return "chat_id 가 틀렸거나, 내 봇에게 아직 '시작(Start)'을 누르지 않았습니다."
+    if "bot was blocked" in desc:
+        return "봇을 차단한 상태입니다. 봇 대화방에서 차단 해제 후 '시작'을 누르세요."
+    if "bots can't send messages to bots" in desc:
+        return "chat_id 에 봇 자신의 번호를 넣었습니다. @userinfobot 이 알려준 '내' 번호를 넣으세요."
+    return "위 메시지를 캡처해 보내주세요."
+
+
+def diagnose(token: str, chat_id: str) -> int:
+    """python -m src.trader.telegram_bot --test : 토큰·chat_id 확인 후 테스트 메시지 전송."""
+    if not token or not chat_id:
+        print("❌ .env 에 TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID 가 비어 있습니다.")
+        return 1
+    api = f"https://api.telegram.org/bot{token}"
+    try:
+        me = requests.get(f"{api}/getMe", timeout=15).json()
+    except Exception as e:  # noqa: BLE001
+        print(f"❌ api.telegram.org 에 연결하지 못했습니다 (인터넷·회사/학교 방화벽·백신 확인): {e}")
+        return 1
+    if not me.get("ok"):
+        print(f"❌ 토큰 확인 실패: {me.get('description')} → {explain(me)}")
+        return 1
+    print(f"✅ 토큰 OK: 봇 이름 @{me['result'].get('username')}")
+    print(f"   .env 의 chat_id: {chat_id}")
+    try:
+        ups = requests.get(f"{api}/getUpdates", timeout=15).json().get("result", [])
+        seen = {}
+        for u in ups:
+            chat = ((u.get("message") or {}).get("chat") or {})
+            if chat.get("id"):
+                seen[str(chat["id"])] = chat.get("first_name") or chat.get("title") or ""
+        if seen:
+            print("   최근 이 봇에게 말을 건 대화방: " + ", ".join(f"{k} ({v})" for k, v in seen.items()))
+            if chat_id not in seen:
+                print("   ⚠️ .env 의 chat_id 가 위 목록에 없습니다. 위 숫자로 바꿔 보세요.")
+    except Exception:  # noqa: BLE001
+        pass
+    res = requests.post(f"{api}/sendMessage", json={"chat_id": chat_id, "text": "✅ AI 트레이더 연결 테스트 메시지입니다."},
+                        timeout=15).json()
+    if res.get("ok"):
+        print("✅ 테스트 메시지를 보냈습니다. 텔레그램을 확인하세요.")
+        return 0
+    print(f"❌ 메시지 전송 실패: {res.get('description')} → {explain(res)}")
+    return 1
+
+
 class NullTelegram:
     """텔레그램 미설정 (드라이런 전용): 승인은 자동, 알림은 콘솔."""
     enabled = False
@@ -147,3 +204,13 @@ class NullTelegram:
 
     def stop(self):
         pass
+
+
+if __name__ == "__main__":
+    import sys
+
+    from .settings import Secrets
+    if "--test" in sys.argv:
+        sec = Secrets()
+        sys.exit(diagnose(sec.telegram_token, sec.telegram_chat_id))
+    print("사용법: python -m src.trader.telegram_bot --test")

@@ -167,3 +167,30 @@ def test_kis_order_legacy_tr_fallback(monkeypatch, tmp_path):
     assert body == {"CANO": "12345678", "ACNT_PRDT_CD": "01", "PDNO": "005930", "ORD_DVSN": "00",
                     "ORD_QTY": "3", "ORD_UNPR": "70000"}
     assert json.loads((tmp_path / "kis_token_real.json").read_text())["token"] == "T"
+
+
+def test_telegram_explains_common_errors():
+    from src.trader.telegram_bot import explain
+    assert "토큰" in explain({"error_code": 401, "description": "Unauthorized"})
+    assert "시작" in explain({"error_code": 400, "description": "Bad Request: chat not found"})
+    assert "@userinfobot" in explain({"error_code": 403, "description": "Forbidden: bots can't send messages to bots"})
+
+
+def test_telegram_diagnose_flow(monkeypatch, capsys):
+    from src.trader import telegram_bot as tb
+
+    class R:
+        def __init__(self, b):
+            self.b = b
+
+        def json(self):
+            return self.b
+
+    monkeypatch.setattr(tb.requests, "get", lambda url, timeout=15: R(
+        {"ok": True, "result": {"username": "my_bot"}} if url.endswith("getMe") else
+        {"ok": True, "result": [{"message": {"chat": {"id": 777, "first_name": "도향"}}}]}))
+    monkeypatch.setattr(tb.requests, "post", lambda url, json=None, timeout=15: R(
+        {"ok": False, "error_code": 400, "description": "Bad Request: chat not found"}))
+    assert tb.diagnose("1:abc", "123") == 1
+    out = capsys.readouterr().out
+    assert "@my_bot" in out and "777" in out and "목록에 없습니다" in out and "chat_id" in out
