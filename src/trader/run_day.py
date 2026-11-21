@@ -389,13 +389,22 @@ class DayTrader:
         self.tg.start()
         self.start(paper_cash)
         self.tg.send(f"[{'드라이런' if self.broker.mode == 'paper' else '실계좌'}] 트레이더 시작 · 평가금 {self.state.start_equity:,.0f}원")
+        flatten = _hhmm(risk.get("flatten_time", "15:15"))
+        if self.hhmm() >= flatten:
+            msg = (f"장 시간이 아니어서({self.now().strftime('%H:%M')}, 청산 시각 {risk.get('flatten_time')} 이후) "
+                   "연결 확인만 하고 종료합니다. 평일 08:00 전에 실행하세요.")
+            if self.ex.positions:
+                msg += " ⚠️ 보유 종목이 있습니다: " + ", ".join(p.name for p in self.ex.positions.values())
+            self.j.event("정보", msg)
+            self.tg.send(msg)
+            self.tg.stop()
+            return
         self.wait_until(_hhmm(sch.get("premarket_start", "08:00")))
         if self.hhmm() < _hhmm(risk.get("entry_end", "15:10")):
             self.premarket()
         scan_at = st.hhmm_add("0900", cfg["orb_minutes"])
         self.wait_until(scan_at)
         self.sleep(10)
-        flatten = _hhmm(risk.get("flatten_time", "15:15"))
         if self.hhmm() < flatten:
             self.scan()
         interval = float(sch.get("loop_interval_sec", 5))

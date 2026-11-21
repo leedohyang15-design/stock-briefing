@@ -340,22 +340,33 @@ class KISClient:
 
 
 def _check() -> None:
+    from ..holidays_kr import previous_trading_day
     s = Settings.load()
     c = KISClient(s)
     print(f"[환경] {c.env}  계좌 {c.cano}-{c.acnt}")
     c.token()
     print("[토큰] OK")
     q = c.quote("005930")
-    print(f"[현재가] {q.name} {q.price:,.0f}원 ({q.change_pct:+.2f}%)  VI={q.vi_active}")
+    print(f"[현재가] 삼성전자(005930) {q.price:,.0f}원 ({q.change_pct:+.2f}%)  VI={q.vi_active}")
     print(f"[지수] 코스피 {c.index_change('KOSPI')}")
     cash, pos, total = c.balance()
     print(f"[잔고] 예수금 {cash:,.0f}원 / 총평가 {total:,.0f}원 / 보유 {len(pos)}종목")
     for p in pos:
         print(f"   - {p.name}({p.code}) {p.qty}주 @ {p.avg_price:,.0f}")
+    need = s.risk.get("max_order_krw", 100000)
+    if cash < need:
+        print(f"   ⚠️ 예수금이 1회 주문 한도({need:,}원)보다 적습니다 → 실계좌 매매 전 입금 필요 (드라이런은 가능)")
     bars = c.minute_bars_today("005930")
-    print(f"[분봉] 오늘 {len(bars)}개")
-    past = c.minute_bars_past("005930", (now_kst() - dt.timedelta(days=7)).strftime("%Y%m%d"))
-    print(f"[과거분봉] 7일 전 {len(past)}개 (0이면 휴장일이거나 API 미지원 → 타임머신은 쌓인 데이터 사용)")
+    print(f"[분봉] 오늘 {len(bars)}개 (휴장일·장 시작 전이면 0개가 정상)")
+    prev = previous_trading_day(now_kst().date()).strftime("%Y%m%d")
+    past = c.minute_bars_past("005930", prev)
+    if len(past) >= 300:
+        verdict = "타임머신 과거 데이터 사용 가능"
+    elif past:
+        verdict = "일부만 받음 → 타임머신은 받은 만큼 + 쌓인 데이터 사용"
+    else:
+        verdict = "API 미지원 → 타임머신은 매일 쌓인 데이터 사용 (10거래일 쌓일 때까지 참고만)"
+    print(f"[과거분봉] 직전 거래일 {prev} {len(past)}개 → {verdict}")
     print("모두 정상입니다.")
 
 

@@ -83,3 +83,12 @@ def test_user_stop_command_blocks_new_entries(tmp_path):
     t.now.__self__.t = t.now().replace(hour=9, minute=40)
     t.tick()
     assert j.query("SELECT * FROM signals") == []
+
+
+def test_after_hours_run_only_checks_connection(tmp_path):
+    t, j, kis = _trader(tmp_path, lambda t: 10300)
+    t.now.__self__.t = t.now().replace(hour=15, minute=50)
+    t.run(1_000_000)
+    assert j.query("SELECT * FROM signals") == [] and j.query("SELECT * FROM orders") == []
+    assert any("장 시간이 아니어서" in e["text"] for e in j.query("SELECT text FROM events"))
+    assert not any("첫 30분" in e["text"] for e in j.query("SELECT text FROM events"))
