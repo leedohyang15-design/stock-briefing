@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import requests
 
 from .models import Bar, OrderResult, Position, Quote, Trade, now_kst
-from .settings import DATA_DIR, Settings
+from .settings import DATA_DIR, Settings, env_diagnosis
 
 BASE = {
     "real": "https://openapi.koreainvestment.com:9443",
@@ -57,7 +57,7 @@ class KISClient:
         self.s = settings
         sec = settings.secrets
         if not sec.has_kis:
-            raise KISError("KIS_APP_KEY / KIS_APP_SECRET / KIS_ACCOUNT 가 .env 에 없습니다")
+            raise KISError("KIS_APP_KEY / KIS_APP_SECRET / KIS_ACCOUNT 가 비어 있습니다.\n" + env_diagnosis())
         self.env = sec.kis_env if sec.kis_env in BASE else "real"
         self.base = BASE[self.env]
         self.app_key, self.app_secret = sec.kis_app_key, sec.kis_app_secret

@@ -10,9 +10,39 @@ from typing import Any, Dict, Optional
 import yaml
 from dotenv import load_dotenv
 
-load_dotenv()
-
 ROOT = Path(__file__).resolve().parents[2]
+ENV_PATH = ROOT / ".env"
+
+
+def _load_env() -> Optional[Path]:
+    """프로젝트 폴더의 .env 를 읽는다. 윈도우 메모장 실수(.env.txt)와 BOM 도 허용."""
+    for cand in (ENV_PATH, ROOT / ".env.txt", ROOT / ".env.example.txt"):
+        if cand.is_file():
+            load_dotenv(cand, encoding="utf-8-sig")
+            if cand != ENV_PATH:
+                print(f"[설정] '{cand.name}' 를 읽었습니다. 파일 이름을 '.env' 로 바꾸는 것을 권장합니다.")
+            return cand
+    load_dotenv(encoding="utf-8-sig")
+    return None
+
+
+LOADED_ENV = _load_env()
+
+
+def env_diagnosis(keys=("KIS_APP_KEY", "KIS_APP_SECRET", "KIS_ACCOUNT", "TELEGRAM_BOT_TOKEN",
+                        "TELEGRAM_CHAT_ID", "GEMINI_API_KEY")) -> str:
+    """키 값은 보여주지 않고, 어떤 키가 비었는지만 알려준다."""
+    lines = [f"찾은 설정 파일: {LOADED_ENV or '없음'}",
+             f"(이 위치에 '.env' 파일이 있어야 합니다: {ENV_PATH})"]
+    if LOADED_ENV is None:
+        near = sorted(p.name for p in ROOT.iterdir() if p.name.lower().startswith(".env") or p.name.lower().startswith("env"))
+        lines.append(f"폴더에 있는 env 관련 파일: {near or '없음'}")
+    for k in keys:
+        v = os.getenv(k, "").strip()
+        lines.append(f"  {k}: {'OK (' + str(len(v)) + '자)' if v else '비어 있음'}")
+    return "\n".join(lines)
+
+
 CONFIG_PATH = ROOT / "config" / "trader.yaml"
 DATA_DIR = Path(os.getenv("TRADER_DATA_DIR", str(ROOT / "data")))
 
@@ -98,3 +128,8 @@ class Settings:
         header = "# AI 단타 트레이딩 설정 (README_TRADER.md 참고). 주간 업데이트로 자동 갱신됨.\n"
         with open(p, "w", encoding="utf-8") as f:
             f.write(header + self.to_yaml())
+
+
+if __name__ == "__main__":
+    # python -m src.trader.settings  → .env 를 제대로 읽었는지 확인 (키 값은 표시 안 함)
+    print(env_diagnosis())
