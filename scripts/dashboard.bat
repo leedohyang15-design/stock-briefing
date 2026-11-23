@@ -1,3 +1,3 @@
 @echo off
 cd /d %~dp0..
-streamlit run src/trader/dashboard.py %*
+python -m streamlit run src/trader/dashboard.py %*

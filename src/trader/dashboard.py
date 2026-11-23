@@ -1,6 +1,6 @@
 """한 화면 대시보드 (보기 전용). 매매 조작은 텔레그램에서만.
 
-    streamlit run src/trader/dashboard.py
+    python -m streamlit run src/trader/dashboard.py
     → http://localhost:8501 (같은 와이파이 휴대폰: http://<PC IP>:8501)
 """
 from __future__ import annotations

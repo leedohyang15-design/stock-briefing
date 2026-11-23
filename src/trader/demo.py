@@ -1,7 +1,7 @@
 """키 없이 대시보드를 미리 보는 데모 데이터 생성 (가짜 시세·가짜 시계, 실제 주문·네트워크 없음).
 
     python -m src.trader.demo
-    streamlit run src/trader/dashboard.py -- --demo
+    python -m streamlit run src/trader/dashboard.py -- --demo
 """
 from __future__ import annotations
 
@@ -98,7 +98,7 @@ def main(until: str = "1020") -> None:
     while t.hhmm() < until:
         t.tick()
         clock.sleep(5)
-    print(f"데모 데이터 생성 완료: {DEMO_DB}\n실행: streamlit run src/trader/dashboard.py -- --demo")
+    print(f"데모 데이터 생성 완료: {DEMO_DB}\n실행: python -m streamlit run src/trader/dashboard.py -- --demo")
 
 
 if __name__ == "__main__":

@@ -65,6 +65,8 @@ GEMINI_API_KEY=...
 
 ## 4. 실행 순서 (꼭 이 순서대로)
 
+> 명령이 인식되지 않는다는 오류가 나면 맨 앞의 `python` 을 `py` 로 바꿔 입력하세요.
+
 **① 키 확인** — 토큰·현재가·잔고·분봉이 나오면 정상입니다.
 ```bash
 python -m src.trader.kis_client --check
@@ -73,7 +75,7 @@ python -m src.trader.kis_client --check
 **② 키 없이 화면 미리보기 (선택)**
 ```bash
 python -m src.trader.demo
-streamlit run src/trader/dashboard.py -- --demo
+python -m streamlit run src/trader/dashboard.py -- --demo
 ```
 
 **③ 드라이런 (최소 반나절)** — 실제 시세, 가상 주문. 텔레그램 버튼도 실제로 옵니다.
@@ -82,7 +84,7 @@ python -m src.trader.run_day --dry-run
 ```
 다른 창에서 대시보드를 엽니다 → http://localhost:8501
 ```bash
-streamlit run src/trader/dashboard.py
+python -m streamlit run src/trader/dashboard.py
 ```
 
 **④ 실계좌** — 처음엔 `config/trader.yaml` 의 `max_order_krw` 를 3~5만원으로 낮추고 1~2회만 해 보세요.
