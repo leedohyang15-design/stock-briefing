@@ -86,6 +86,25 @@ def imbalance_check(trades: Sequence[Trade], n: int, min_oib: float) -> AgentRes
     return AgentResult(11, "주문 불균형", "reject", f"매도 주도 우세 (매수 {pct:.0f}%, 불균형 {oib:+.2f})", data)
 
 
+def recent_only(rows: List[Dict[str, str]], now, hours: float) -> List[Dict[str, str]]:
+    """date(YYYYMMDD)·time(HHMMSS) 가 있는 항목 중 최근 hours 시간 이내만. 날짜가 없으면 남긴다."""
+    import datetime as _dt
+    out = []
+    for r in rows:
+        d, t = r.get("date", ""), (r.get("time", "") or "000000").ljust(6, "0")
+        if len(d) != 8:
+            out.append(r)
+            continue
+        try:
+            ts = _dt.datetime.strptime(d + t[:6], "%Y%m%d%H%M%S").replace(tzinfo=now.tzinfo)
+        except ValueError:
+            out.append(r)
+            continue
+        if (now - ts).total_seconds() <= hours * 3600:
+            out.append(r)
+    return out
+
+
 # ── 12. 실시간 뉴스·공시 확인 (Lopez-Lira·Tang: 악재 거부용) ──
 def news_check(llm, name: str, news: List[Dict[str, str]], notices: List[Dict[str, str]],
                keywords: List[str], llm_required: bool) -> AgentResult:

@@ -112,7 +112,7 @@ class DayTrader:
     # ── 장전 ──
     def premarket(self) -> PremarketReport:
         self.j.event("정보", "장전 분석팀 실행 시작 (에이전트 1~8)")
-        rep = run_premarket(self.llm, self.inputs or default_inputs(), self.s.news.get("reject_keywords", []))
+        rep = run_premarket(self.llm, self.inputs or default_inputs(self.kis), self.s.news.get("reject_keywords", []))
         for r in rep.results:
             self.j.agent_result(r)
         self.report = rep
@@ -287,9 +287,14 @@ class DayTrader:
         self.j.event("매수", f"{ip.name} 필터 통과 → 텔레그램 승인 요청 ({qty}주 @{lim:,})", ip.code)
 
     def _news(self, ip) -> AgentResult:
-        from . import naver
-        return intraday.news_check(self.llm, ip.name, naver.stock_news(ip.code), naver.stock_notices(ip.code),
-                                   self.s.news.get("reject_keywords", []), self.s.news.get("llm_required", True))
+        """12번: 한국투자증권 종합 시황/공시에서 종목 뉴스·공시를 받는다. 조회 실패는 '뉴스 없음'이 아니라 거부."""
+        try:
+            rows = self.kis.news_titles(ip.code, 20)
+        except Exception as e:  # noqa: BLE001
+            return AgentResult(12, "실시간 뉴스·공시", "reject", f"뉴스·공시 조회 실패 → 보수적으로 거부 ({e})")
+        rows = intraday.recent_only(rows, self.now(), self.s.news.get("lookback_hours", 24))
+        return intraday.news_check(self.llm, ip.name, rows, [], self.s.news.get("reject_keywords", []),
+                                   self.s.news.get("llm_required", True))
 
     def handle_pending(self, code: str) -> None:
         cs = self.codes[code]

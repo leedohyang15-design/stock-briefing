@@ -262,13 +262,31 @@ class KISClient:
         res = self._call("GET", "/uapi/domestic-stock/v1/quotations/volume-rank", "FHPST01710000", {
             "FID_COND_MRKT_DIV_CODE": "J", "FID_COND_SCR_DIV_CODE": "20171", "FID_INPUT_ISCD": "0000",
             "FID_DIV_CLS_CODE": "1", "FID_BLNG_CLS_CODE": blng, "FID_TRGT_CLS_CODE": "111111111",
-            "FID_TRGT_EXLS_CLS_CODE": "0000001111", "FID_INPUT_PRICE_1": "", "FID_INPUT_PRICE_2": "",
+            "FID_TRGT_EXLS_CLS_CODE": "1111111111", "FID_INPUT_PRICE_1": "", "FID_INPUT_PRICE_2": "",
             "FID_VOL_CNT": "", "FID_INPUT_DATE_1": ""})
         if not self._ok(res):
             return []
         return [{"code": r.get("mksc_shrn_iscd"), "name": r.get("hts_kor_isnm"), "price": _f(r.get("stck_prpr")),
                  "change_pct": _f(r.get("prdy_ctrt")), "volume": _f(r.get("acml_vol")),
-                 "avg_volume": _f(r.get("avrg_vol"))} for r in res.get("output", []) or [] if r.get("mksc_shrn_iscd")]
+                 "avg_volume": _f(r.get("avrg_vol")), "value_krw": _f(r.get("acml_tr_pbmn"))}
+                for r in res.get("output", []) or [] if r.get("mksc_shrn_iscd")]
+
+    def news_titles(self, code: str = "", limit: int = 20) -> List[Dict[str, str]]:
+        """종합 시황/공시 제목 [국내주식-141]. code 를 비우면 전체 시황. 최신순.
+        조회 실패 시 KISError (뉴스 확인 에이전트는 실패를 '뉴스 없음'으로 보지 않고 거부한다)."""
+        res = self._call("GET", "/uapi/domestic-stock/v1/quotations/news-title", "FHKST01011800", {
+            "FID_NEWS_OFER_ENTP_CODE": "", "FID_COND_MRKT_CLS_CODE": "", "FID_INPUT_ISCD": code,
+            "FID_TITL_CNTT": "", "FID_INPUT_DATE_1": "", "FID_INPUT_HOUR_1": "", "FID_RANK_SORT_CLS_CODE": "",
+            "FID_INPUT_SRNO": ""})
+        if not self._ok(res):
+            raise KISError(f"뉴스·공시 조회 실패 {code}: {res.get('msg1')}")
+        out = []
+        for r in res.get("output", []) or []:
+            title = str(r.get("hts_pbnt_titl_cntt", "")).strip()
+            if title:
+                out.append({"title": title, "date": r.get("data_dt", ""), "time": r.get("data_tm", ""),
+                            "source": r.get("dorg", "")})
+        return out[:limit]
 
     # ── 계좌 ─────────────────────────────────────────
     def balance(self) -> Tuple[float, List[Position], float]:
@@ -367,6 +385,11 @@ def _check() -> None:
     else:
         verdict = "API 미지원 → 타임머신은 매일 쌓인 데이터 사용 (10거래일 쌓일 때까지 참고만)"
     print(f"[과거분봉] 직전 거래일 {prev} {len(past)}개 → {verdict}")
+    try:
+        n = c.news_titles("005930", 5)
+        print(f"[뉴스·공시] 삼성전자 최근 {len(n)}건" + (f" · 예: {n[0]['date']} {n[0]['title'][:30]}" if n else ""))
+    except KISError as e:
+        print(f"[뉴스·공시] 실패: {e} → 뉴스 확인 에이전트가 모든 매수를 거부합니다. 화면을 캡처해 보내주세요.")
     print("모두 정상입니다.")
 
 

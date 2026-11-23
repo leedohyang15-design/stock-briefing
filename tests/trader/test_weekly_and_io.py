@@ -194,3 +194,55 @@ def test_telegram_diagnose_flow(monkeypatch, capsys):
     assert tb.diagnose("1:abc", "123") == 1
     out = capsys.readouterr().out
     assert "@my_bot" in out and "777" in out and "목록에 없습니다" in out and "chat_id" in out
+
+
+def _kis_with(monkeypatch, tmp_path, replies):
+    monkeypatch.setenv("KIS_APP_KEY", "k" * 10)
+    monkeypatch.setenv("KIS_APP_SECRET", "s")
+    monkeypatch.setenv("KIS_ACCOUNT", "12345678-01")
+    monkeypatch.setattr("src.trader.kis_client.DATA_DIR", tmp_path)
+    from src.trader.kis_client import KISClient
+    sess = _Session([{"access_token": "T", "access_token_token_expired": "2099-01-01 00:00:00"}] + replies)
+    return KISClient(Settings.load(), session=sess), sess
+
+
+def test_kis_news_titles_and_volume_rank_exclusions(monkeypatch, tmp_path):
+    import pytest
+    from src.trader.kis_client import KISError
+    c, sess = _kis_with(monkeypatch, tmp_path, [
+        {"rt_cd": "0", "output": [{"hts_pbnt_titl_cntt": "삼성전자, 유상증자 결정", "data_dt": "20261123",
+                                   "data_tm": "093000", "dorg": "KIND"}, {"hts_pbnt_titl_cntt": ""}]},
+        {"rt_cd": "0", "output": [{"mksc_shrn_iscd": "005930", "hts_kor_isnm": "삼성전자", "stck_prpr": "180900",
+                                   "prdy_ctrt": "-8.13", "acml_vol": "1", "avrg_vol": "1", "acml_tr_pbmn": "5000000000"}]},
+        {"rt_cd": "1", "msg1": "오류"},
+    ])
+    n = c.news_titles("005930")
+    assert n == [{"title": "삼성전자, 유상증자 결정", "date": "20261123", "time": "093000", "source": "KIND"}]
+    assert sess.seen[1][2]["tr_id"] == "FHKST01011800" and sess.seen[1][3]["FID_INPUT_ISCD"] == "005930"
+    v = c.volume_rank("value")
+    assert v[0]["value_krw"] == 5e9
+    assert sess.seen[2][3]["FID_TRGT_EXLS_CLS_CODE"] == "1111111111"   # 투자위험·관리·정지·ETF 등 제외
+    with pytest.raises(KISError):
+        c.news_titles("005930")
+
+
+def test_news_fetch_failure_rejects_and_old_news_filtered(tmp_path):
+    import datetime as dt
+    from src.trader.agents import intraday
+    from src.trader.models import KST
+    now = dt.datetime(2026, 11, 23, 10, 0, tzinfo=KST)
+    rows = [{"title": "새 뉴스", "date": "20261123", "time": "093000"},
+            {"title": "옛날 유상증자", "date": "20261101", "time": "090000"}, {"title": "날짜없음"}]
+    assert [r["title"] for r in intraday.recent_only(rows, now, 24)] == ["새 뉴스", "날짜없음"]
+
+    from .test_day_flow import _trader
+    from src.trader import strategy as st
+    t, j, kis = _trader(tmp_path, lambda h: 10300)
+    del t._news                                     # 실제 _news 사용
+
+    def boom(code="", limit=20):
+        raise RuntimeError("network down")
+    kis.news_titles = boom
+    ip = intraday.InPlay("111111", "샘플", 4.0, 600, st.OpeningRange(10150, 9990, 10000, 10100, 1, "0905"), 1e10, 10000)
+    r = t._news(ip)
+    assert r.decision == "reject" and "조회 실패" in r.reason

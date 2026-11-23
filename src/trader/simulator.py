@@ -114,6 +114,9 @@ class FakeKIS:
             p = nxt
         return out
 
+    def news_titles(self, code="", limit=20):
+        return []
+
     def recent_trades(self, code):
         return [Trade(time="", price=10300 - i * 10, qty=100) for i in range(30)]  # 최신이 앞, 상승 중
 

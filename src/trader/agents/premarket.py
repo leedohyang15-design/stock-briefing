@@ -30,7 +30,9 @@ class PremarketInputs:
     notices: Callable[[str], List[Dict[str, str]]]
 
 
-def default_inputs() -> PremarketInputs:
+def default_inputs(kis=None) -> PremarketInputs:
+    """기본 수집원. 네이버 증권이 새 사이트(stock.naver.com)로 옮겨 예전 페이지 파싱이 깨졌으므로
+    거래대금 상위·뉴스·공시는 한국투자증권 API 를 우선 쓰고, 네이버는 보조로만 쓴다."""
     from ...collectors import hot_sectors, indices, issues
     from .. import naver
 
@@ -38,14 +40,39 @@ def default_inputs() -> PremarketInputs:
         return [f"{q.name} {q.value:,.2f} ({q.change_pct:+.2f}%)" for q in indices.fetch_indices()]
 
     def _news():
+        if kis is not None:
+            try:
+                rows = kis.news_titles("", 15)
+                if rows:
+                    return [f"{r['date'][4:]} {r['time'][:4]} {r['title']}" for r in rows]
+            except Exception as e:  # noqa: BLE001
+                print(f"[premarket] KIS 시황 뉴스 실패: {e}")
         return [i.title for i in issues.fetch_top_issues(limit=10)]
 
     def _themes():
         groups, _ = hot_sectors.fetch_trending(themes_n=5, per_sector=3)
         return [f"{g.name} {g.headline_pct:+.2f}% (대표: {', '.join(s.name for s in g.stocks)})" for g in groups]
 
-    return PremarketInputs(indices=_idx, headlines=_news, themes=_themes,
-                           pool=lambda: naver.top_trading_value(30), notices=naver.stock_notices)
+    def _pool():
+        if kis is not None:
+            try:
+                rows = [r for r in kis.volume_rank("value") if r.get("value_krw")]
+                if rows:
+                    return [{"code": r["code"], "name": r["name"], "price": r["price"], "change_pct": r["change_pct"],
+                             "value_krw": r["value_krw"]} for r in rows[:30]]
+            except Exception as e:  # noqa: BLE001
+                print(f"[premarket] KIS 거래대금 순위 실패: {e}")
+        return naver.top_trading_value(30)
+
+    def _notices(code):
+        if kis is not None:
+            try:
+                return kis.news_titles(code, 10)
+            except Exception as e:  # noqa: BLE001
+                print(f"[premarket] KIS 공시 실패 {code}: {e}")
+        return naver.stock_notices(code)
+
+    return PremarketInputs(indices=_idx, headlines=_news, themes=_themes, pool=_pool, notices=_notices)
 
 
 @dataclass
