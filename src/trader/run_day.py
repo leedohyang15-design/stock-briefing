@@ -67,6 +67,8 @@ class DayTrader:
         self.first30: Optional[float] = None
         self.regime: Optional[AgentResult] = None
         self._last_index = 0.0
+        self._first30_missed = False
+        self._regime_blocked = False
         self._last_bars = 0.0
         self.cost_pct = cost_pct(settings.costs.get("fee_pct", 0.015), settings.costs.get("sell_tax_pct", 0.2))
         self._register_commands()
@@ -192,12 +194,24 @@ class DayTrader:
                 except Exception as e:  # noqa: BLE001
                     print(f"[index] {m} 실패: {e}")
             avg = (self.index["KOSPI"] + self.index["KOSDAQ"]) / 2
-            if self.first30 is None and self.hhmm() >= "0930":
-                self.first30 = avg
-                self.j.event("정보", f"지수 첫 30분 수익률 {avg:+.2f}% (코스피·코스닥 평균)")
+            now = self.hhmm()
+            if self.first30 is None and not self._first30_missed and now >= "0930":
+                if now < "0945":
+                    self.first30 = avg
+                    self.j.event("정보", f"지수 첫 30분 수익률 {avg:+.2f}% (코스피·코스닥 평균)")
+                else:  # 늦게 시작해 09:30 값을 모름 → 현재 지수로 판단
+                    self._first30_missed = True
+                    self.j.event("정보", f"{now[:2]}:{now[2:]} 시작이라 첫 30분 수익률을 알 수 없음 → 현재 지수 등락률로 판단")
             cfg = self.s.strategy
-            self.regime = intraday.regime_check(self.hhmm(), avg, self.first30, cfg["regime_early_min_pct"],
+            self.regime = intraday.regime_check(now, avg, self.first30, cfg["regime_early_min_pct"],
                                                 cfg["regime_first30_min_pct"], "코스피·코스닥")
+            blocked = self.regime.blocks
+            if blocked != self._regime_blocked:
+                self._regime_blocked = blocked
+                msg = (f"시장 분위기 약세 → 신규 매수 중단 중 ({self.regime.reason})" if blocked
+                       else f"시장 분위기 회복 → 신규 매수 재개 ({self.regime.reason})")
+                self.j.event("중단" if blocked else "정보", msg)
+                self.tg.send(("⏸ " if blocked else "▶️ ") + msg)
         if t - self._last_bars > 60:
             self._last_bars = t
             for c in codes:
@@ -348,8 +362,8 @@ class DayTrader:
             if cs.status == "pending":
                 self.handle_pending(code)
             elif cs.status == "watch" or (cs.status == "cooldown" and self.now().timestamp() >= cs.retry_at):
-                if code in self.ex.positions or self.state.stopped:
-                    continue
+                if code in self.ex.positions or self.state.stopped or self._regime_blocked:
+                    continue  # 시장 전체가 막힌 동안은 종목별 신호를 만들지 않는다
                 self.evaluate_signal(ip, q, rank)
         self.snapshot()
 

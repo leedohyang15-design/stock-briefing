@@ -92,3 +92,25 @@ def test_after_hours_run_only_checks_connection(tmp_path):
     assert j.query("SELECT * FROM signals") == [] and j.query("SELECT * FROM orders") == []
     assert any("장 시간이 아니어서" in e["text"] for e in j.query("SELECT text FROM events"))
     assert not any("첫 30분" in e["text"] for e in j.query("SELECT text FROM events"))
+
+
+def test_late_start_weak_market_blocks_quietly(tmp_path):
+    t, j, kis = _trader(tmp_path, lambda h: 10100 if h < "0935" else 10300)
+    kis.index_change = lambda m="KOSPI": (2500.0, -2.3)
+    t.start(1_000_000)
+    t.premarket()
+    t.now.__self__.t = t.now().replace(hour=13, minute=25)
+    t.scan()
+    for _ in range(30):
+        t.tick()
+        t.now.__self__.t += __import__("datetime").timedelta(seconds=61)
+    texts = [e["text"] for e in j.query("SELECT text FROM events")]
+    assert not any("첫 30분 수익률 -" in x for x in texts)               # 늦게 시작하면 '첫 30분'으로 기록 안 함
+    assert any("알 수 없음" in x for x in texts)
+    assert sum("신규 매수 중단 중" in x for x in texts) == 1               # 알림은 한 번만
+    assert j.query("SELECT * FROM signals") == []                       # 종목별 신호 남발 없음
+    kis.index_change = lambda m="KOSPI": (2500.0, 0.4)
+    t._last_index = 0
+    t.tick()
+    assert t._regime_blocked is False
+    assert len(j.query("SELECT * FROM signals")) == 1                   # 회복되면 다시 검사
