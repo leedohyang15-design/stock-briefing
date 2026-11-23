@@ -1,4 +1,5 @@
 @echo off
-REM 평일 07:55 작업 스케줄러 등록용. 처음 1~2일은 --dry-run 으로 실행하세요.
-cd /d %~dp0..
-python -m src.trader.run_day %* >> data\trader_%date:~0,4%%date:~5,2%%date:~8,2%.log 2>&1
+REM Scheduled weekday run (paper trading by default). Add --live --yes for real account.
+cd /d "%~dp0.."
+if not exist data mkdir data
+python -m src.trader.launch --yes %* >> data\trader.log 2>&1

@@ -246,3 +246,24 @@ def test_news_fetch_failure_rejects_and_old_news_filtered(tmp_path):
     ip = intraday.InPlay("111111", "샘플", 4.0, 600, st.OpeningRange(10150, 9990, 10000, 10100, 1, "0905"), 1e10, 10000)
     r = t._news(ip)
     assert r.decision == "reject" and "조회 실패" in r.reason
+
+
+def test_launcher_paper_default_and_live_confirmation(monkeypatch):
+    from src.trader import launch
+    calls = {}
+    monkeypatch.setattr(launch, "ensure_packages", lambda: None)
+    monkeypatch.setattr("src.holidays_kr.is_market_holiday", lambda d: False)
+
+    class FakeTrader:
+        def run(self, cash):
+            calls["cash"] = cash
+
+    def fake_build(dry_run, paper_cash):
+        calls["dry_run"] = dry_run
+        return FakeTrader()
+    monkeypatch.setattr("src.trader.run_day.build", fake_build)
+    assert launch.main(["--no-dashboard", "--yes"]) == 0
+    assert calls == {"dry_run": True, "cash": 100_000.0}
+    monkeypatch.setattr("builtins.input", lambda prompt="": "아니오")
+    calls.clear()
+    assert launch.main(["--live", "--no-dashboard"]) == 1 and calls == {}     # 확인 문구 없으면 실계좌 안 켬
