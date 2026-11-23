@@ -87,16 +87,16 @@ python -m src.trader.kis_client --check
 **② 키 없이 화면 미리보기 (선택)**
 ```bash
 python -m src.trader.demo
-python -m streamlit run src/trader/dashboard.py -- --demo
+python -m src.trader.web.server --demo
 ```
 
-**③ 드라이런 (최소 반나절)** — 실제 시세, 가상 주문. 텔레그램 버튼도 실제로 옵니다.
+**③ 드라이런 (최소 반나절)** — 실제 시세, 가상 주문. 텔레그램 버튼도 실제로 옵니다. 대시보드도 함께 열립니다.
 ```bash
-python -m src.trader.run_day --dry-run
+python -m src.trader.launch
 ```
-다른 창에서 대시보드를 엽니다 → http://localhost:8501
+대시보드만 따로 열기 → http://localhost:8501
 ```bash
-python -m streamlit run src/trader/dashboard.py
+python -m src.trader.web.server
 ```
 
 **④ 실계좌** — 처음엔 `config/trader.yaml` 의 `max_order_krw` 를 3~5만원으로 낮추고 1~2회만 해 보세요.
@@ -159,7 +159,9 @@ src/trader/
   kis_client.py   한국투자증권 REST (토큰 캐시, 속도 제한, 주문 TR 폴백)
   run_day.py      평일 오케스트레이터 (--dry-run)
   run_weekly.py   주간 복기·변경안·적용/보류/롤백
-  dashboard.py    Streamlit 한 화면 대시보드 (보기 전용)
+  web/            한 화면 대시보드 (보기 전용, 표준 라이브러리 서버 + lightweight-charts)
+  narrator.py     상태·에이전트 결과를 쉬운 문장으로
+  launch.py       원클릭 실행 (대시보드 + 트레이더)
   agents/premarket.py  1~8 · agents/intraday.py 9~14 · agents/timemachine.py 18 · agents/review.py 17
   risk.py 15 · executor.py 16 · strategy.py 계산식 · backtest.py · journal.py(SQLite) · telegram_bot.py
 config/trader.yaml   모든 설정값

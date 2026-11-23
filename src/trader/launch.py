@@ -13,13 +13,11 @@ import argparse
 import importlib
 import subprocess
 import sys
-import time
-import urllib.request
 import webbrowser
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-NEEDED = ["streamlit", "plotly", "numpy", "yfinance", "yaml", "dotenv", "bs4", "lxml", "holidays", "google.genai"]
+NEEDED = ["numpy", "yfinance", "yaml", "dotenv", "bs4", "lxml", "holidays", "google.genai"]
 
 
 def ensure_packages() -> None:
@@ -35,21 +33,17 @@ def ensure_packages() -> None:
 
 
 def start_dashboard(port: int = 8501):
-    log = open(ROOT / "data" / "dashboard.log", "a", encoding="utf-8")
-    proc = subprocess.Popen(
-        [sys.executable, "-m", "streamlit", "run", str(ROOT / "src" / "trader" / "dashboard.py"),
-         "--server.port", str(port), "--server.headless", "true", "--browser.gatherUsageStats", "false"],
-        cwd=str(ROOT), stdout=log, stderr=subprocess.STDOUT)
+    """대시보드 서버를 같은 프로세스의 스레드로 띄우고 브라우저를 연다 (트레이더를 끄면 같이 꺼짐)."""
+    from .web.server import serve
+    try:
+        httpd = serve(port=port, block=False)
+    except OSError:
+        print(f"[대시보드] {port} 포트가 이미 사용 중입니다 (이미 켜져 있을 수 있음). 브라우저만 엽니다.")
+        httpd = None
     url = f"http://localhost:{port}"
-    for _ in range(40):
-        try:
-            if urllib.request.urlopen(f"{url}/_stcore/health", timeout=1).read() == b"ok":
-                break
-        except Exception:  # noqa: BLE001
-            time.sleep(0.5)
     webbrowser.open(url)
-    print(f"[대시보드] {url} (같은 와이파이 휴대폰: http://<이 PC의 IP>:{port})")
-    return proc
+    print(f"[대시보드] {url}")
+    return httpd
 
 
 def main(argv=None) -> int:
@@ -88,7 +82,7 @@ def main(argv=None) -> int:
         print("\n사용자가 중지했습니다.")
     finally:
         if dash:
-            dash.terminate()
+            dash.shutdown()
     print("오늘 일정이 끝났습니다.")
     if not args.yes:
         input("엔터를 누르면 창이 닫힙니다...")

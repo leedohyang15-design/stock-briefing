@@ -1,7 +1,7 @@
 """키 없이 대시보드를 미리 보는 데모 데이터 생성 (가짜 시세·가짜 시계, 실제 주문·네트워크 없음).
 
     python -m src.trader.demo
-    python -m streamlit run src/trader/dashboard.py -- --demo
+    python -m src.trader.web.server --demo
 """
 from __future__ import annotations
 
@@ -27,6 +27,24 @@ def _path_semi(t):
 
 def _path_def(t):
     return 10050 + (int(t[2:]) % 4) * 15 if t < "1001" else 10250 + (int(t[2:]) % 5) * 10
+
+
+def _path_pow(t):
+    return 10080 if t < "1012" else 10240 + (int(t[2:]) % 3) * 5
+
+
+class _DemoTG(NullTelegram):
+    """데모: '샘플전력' 매수는 승인 대기 상태로 남긴다."""
+    def __init__(self):
+        super().__init__()
+        self.hold = set()
+
+    def request_approval(self, sid, text):
+        if "샘플전력" in text:
+            self.hold.add(sid)
+
+    def approval_status(self, sid, timeout_sec):
+        return "pending" if sid in self.hold else "approved"
 
 
 def _path_bio(t):
@@ -69,7 +87,8 @@ def main(until: str = "1020") -> None:
 
     clock = FakeClock("0750")
     kis = FakeKIS(clock, {"111111": ("샘플반도체", _path_semi), "222222": ("샘플방산", _path_def),
-                          "333333": ("샘플바이오", _path_bio)})
+                          "333333": ("샘플바이오", _path_bio),
+                          "444444": ("샘플전력", _path_pow)})
     pool = [{"code": c, "name": n, "price": 10000, "change_pct": 2.0 - k, "value_krw": (5 - k) * 1e10}
             for k, (c, (n, _)) in enumerate(kis.paths.items())]
     inputs = premarket.PremarketInputs(
@@ -84,21 +103,29 @@ def main(until: str = "1020") -> None:
         {"watchlist": [{"code": c, "note": "데모 관심종목"} for c in kis.paths], "exclude": [], "aggression": "normal",
          "summary": "반도체 중심 (데모)"},
     ])
-    t = DayTrader(s, kis, PaperBroker(lambda c: kis.quote(c).price, 1_000_000), j, llm, NullTelegram(),
+    t = DayTrader(s, kis, PaperBroker(lambda c: kis.quote(c).price, 1_000_000), j, llm, _DemoTG(),
                   now_fn=clock.now, sleep_fn=clock.sleep, premarket_inputs=inputs)
     t.ex.poll = 0
     t._news = lambda ip: (AgentResult(12, "실시간 뉴스·공시", "reject", "공시 악재 키워드 '유상증자': (데모) 유상증자 결정")
                           if ip.code == "222222" else AgentResult(12, "실시간 뉴스·공시", "pass", "신규 악재 없음 (데모)"))
     t.start(1_000_000)
+    t.set_phase("waiting")
     t.wait_until("0800")
+    t.set_phase("premarket")
     t.premarket()
+    t.set_phase("ready")
+    t.wait_until("0900")
+    t.set_phase("scan")
     t.wait_until("0905")
     clock.sleep(10)
     t.scan()
+    t.set_phase("intraday")
     while t.hhmm() < until:
         t.tick()
         clock.sleep(5)
-    print(f"데모 데이터 생성 완료: {DEMO_DB}\n실행: python -m streamlit run src/trader/dashboard.py -- --demo")
+    t.beat()
+    j.snapshot("heartbeat", {"ts": "2099-01-01T00:00:00+09:00"})  # 데모는 항상 '켜짐'으로 표시
+    print(f"데모 데이터 생성 완료: {DEMO_DB}\n실행: python -m src.trader.web.server --demo")
 
 
 if __name__ == "__main__":

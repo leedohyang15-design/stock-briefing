@@ -82,7 +82,21 @@ class DayTrader:
 
     def wait_until(self, hhmm: str) -> None:
         while self.hhmm() < hhmm:
+            self.beat()
             self.sleep(min(30.0, 5.0))
+
+    def beat(self) -> None:
+        """대시보드가 '트레이더 살아 있음'을 알 수 있게 시각 기록."""
+        self.j.snapshot("heartbeat", {"ts": self.now().isoformat(timespec="seconds")})
+
+    def set_phase(self, key: str) -> None:
+        """하루 진행 단계 기록: waiting → premarket → scan → intraday → flatten → review → done."""
+        ts = self.now().isoformat(timespec="seconds")
+        snap = self.j.get_snapshot("phase", {}) or {}
+        hist = snap.get("history", {}) if str(snap.get("ts", ""))[:10] == ts[:10] else {}
+        hist.setdefault(key, ts)
+        self.j.snapshot("phase", {"key": key, "ts": ts, "history": hist})
+        self.beat()
 
     def _register_commands(self):
         self.tg.on("status", lambda a: self.status_text())
@@ -212,7 +226,7 @@ class DayTrader:
                        else f"시장 분위기 회복 → 신규 매수 재개 ({self.regime.reason})")
                 self.j.event("중단" if blocked else "정보", msg)
                 self.tg.send(("⏸ " if blocked else "▶️ ") + msg)
-        if t - self._last_bars > 60:
+        if t - self._last_bars > 20:  # 차트용 최근 1분봉 (종목당 3회/분)
             self._last_bars = t
             for c in codes:
                 datalog.refresh_today(self.kis, self.j, c, full=False)
@@ -368,6 +382,7 @@ class DayTrader:
         self.snapshot()
 
     def snapshot(self) -> None:
+        self.beat()
         s = self.state
         limit_amt = s.start_equity * self.s.risk.get("daily_loss_limit_pct", 3.0) / 100
         closed = self.j.query("SELECT net_pnl FROM trades WHERE date=? AND exit_ts IS NOT NULL", (self.today(),))
@@ -408,6 +423,8 @@ class DayTrader:
         self.tg.start()
         self.start(paper_cash)
         self.tg.send(f"[{'드라이런' if self.broker.mode == 'paper' else '실계좌'}] 트레이더 시작 · 평가금 {self.state.start_equity:,.0f}원")
+        self.set_phase("waiting")
+        self.snapshot()
         flatten = _hhmm(risk.get("flatten_time", "15:15"))
         if self.hhmm() >= flatten:
             msg = (f"장 시간이 아니어서({self.now().strftime('%H:%M')}, 청산 시각 {risk.get('flatten_time')} 이후) "
@@ -416,16 +433,22 @@ class DayTrader:
                 msg += " ⚠️ 보유 종목이 있습니다: " + ", ".join(p.name for p in self.ex.positions.values())
             self.j.event("정보", msg)
             self.tg.send(msg)
+            self.set_phase("done")
             self.tg.stop()
             return
         self.wait_until(_hhmm(sch.get("premarket_start", "08:00")))
         if self.hhmm() < _hhmm(risk.get("entry_end", "15:10")):
+            self.set_phase("premarket")
             self.premarket()
+            self.set_phase("ready")
+        self.wait_until("0900")
+        self.set_phase("scan")
         scan_at = st.hhmm_add("0900", cfg["orb_minutes"])
         self.wait_until(scan_at)
         self.sleep(10)
         if self.hhmm() < flatten:
             self.scan()
+        self.set_phase("intraday")
         interval = float(sch.get("loop_interval_sec", 5))
         while self.hhmm() < flatten:
             try:
@@ -433,15 +456,18 @@ class DayTrader:
             except Exception as e:  # noqa: BLE001
                 self.j.event("오류", f"루프 오류: {e}")
             self.sleep(interval)
+        self.set_phase("flatten")
         self.refresh_quotes()
         self.state.realized_pnl += self.ex.flatten(self.prices(), "장마감 청산")
         self.update_pnl()
         self.snapshot()
         self.wait_until(_hhmm(sch.get("review_time", "15:40")))
+        self.set_phase("review")
         datalog.record_eod(self.kis, self.j, list(self.inplay) + [c.code for c in (self.report.watchlist if self.report else [])])
         _, text = daily_review(self.j, self.llm, self.today(), self.state.start_equity, self.broker.mode)
         self.j.event("정보", "일일 복기 완료")
         self.tg.send(text)
+        self.set_phase("done")
         self.tg.stop()
 
 

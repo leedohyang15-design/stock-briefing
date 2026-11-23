@@ -1,3 +1,4 @@
 @echo off
 cd /d "%~dp0.."
-python -m streamlit run src/trader/dashboard.py %*
+python -m src.trader.web.server %*
+if errorlevel 9009 py -m src.trader.web.server %*
