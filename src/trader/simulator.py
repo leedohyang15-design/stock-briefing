@@ -105,10 +105,12 @@ class FakeKIS:
     def minute_bars_recent(self, code):
         return self.minute_bars_today(code)[-30:]
 
-    def minute_bars_past(self, code, date):
+    def minute_bars_past(self, code, date, until="153000"):
         self._c("past")
         out, p = [], 10000.0
         for t in minute_grid():
+            if t > until[:4]:
+                break
             nxt = p * 1.0001
             out.append(Bar(time=t, date=date, open=p, high=nxt, low=p * 0.9999, close=nxt, volume=5000))
             p = nxt

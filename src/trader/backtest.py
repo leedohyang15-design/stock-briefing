@@ -1,7 +1,7 @@
 """쌓인 1분봉으로 ORB 규칙을 재현하는 백테스트 (주간 업데이트용).
 
-재현하는 것: Stocks in Play 순위·필터, 시가범위 돌파 진입, VI 근처 진입 금지, ATR 손절, 청산 시각,
-            동시 보유·하루 진입 횟수 한도, 비용.
+재현하는 것: Stocks in Play 순위·필터(실측 상대거래량 우선), 시가범위 돌파 진입, VI 근처 진입 금지,
+            ATR 손절(+하한), 청산 시각, 동시 보유·하루 진입 횟수 한도, 비용, 미끄러짐(호가), 갭 손절.
 재현 못 하는 것: 주문 불균형·뉴스 판정·타임머신·시장 분위기 (과거 체결·뉴스 데이터가 없음),
                 체결 미끄러짐. 그래서 결과는 '규칙 자체의 성능' 추정치다.
 한계: 우리가 저장한 종목(그날 관심·Stocks in Play 후보)만 대상이라 표본 편향이 있다.
@@ -64,7 +64,12 @@ def _day_candidates(journal: Journal, date: str, s: Settings):
             continue
         if a / rng.close * 100 < cfg["min_atr_pct"]:
             continue
-        rv = st.relative_volume(rng.volume, st.avg_volume(daily), cfg["open_volume_share"])
+        prev = [d for d in journal.bar_dates(code) if d < date][-14:]
+        avg_open, n_days = st.open_volume_avg([journal.bars(code, d) for d in prev], cfg["orb_minutes"])
+        if n_days >= cfg.get("relvol_min_days", 10) and avg_open > 0:
+            rv = rng.volume / avg_open
+        else:
+            rv = st.relative_volume(rng.volume, st.avg_volume(daily), cfg["open_volume_share"])
         if rv < cfg["relvol_min"]:
             continue
         rows.append((rv, code, bars, rng, a))
@@ -75,6 +80,7 @@ def _day_candidates(journal: Journal, date: str, s: Settings):
 def run(journal: Journal, s: Settings, dates: Sequence[str], equity: float = 1_000_000.0) -> BTResult:
     cfg, risk, costs = s.strategy, s.risk, s.costs
     cpct = cost_pct(costs.get("fee_pct", 0.015), costs.get("sell_tax_pct", 0.2))
+    slip = int(s.execution.get("slippage_ticks", 1))
     entry_end = risk.get("entry_end", "15:10").replace(":", "")
     flatten = risk.get("flatten_time", "15:15").replace(":", "")
     trades: List[BTTrade] = []
@@ -89,10 +95,12 @@ def run(journal: Journal, s: Settings, dates: Sequence[str], equity: float = 1_0
             if i is None:
                 continue
             entry = max(add_ticks(rng.high, 1), after[i].open)
+            if slip:
+                entry = add_ticks(entry, slip)
             room = st.vi_room_pct(entry, rng.open, cfg["static_vi_pct"])
             if room <= cfg["vi_guard_pct"]:
                 continue
-            stop = st.stop_price(entry, a, cfg["stop_atr_mult"])
+            stop = st.stop_for(entry, a, cfg, cpct)
             qty = st.position_size(equity, risk.get("risk_per_trade_pct", 1.0), entry, stop,
                                    risk.get("max_order_krw", 100000), equity)
             if qty <= 0:
@@ -100,10 +108,11 @@ def run(journal: Journal, s: Settings, dates: Sequence[str], equity: float = 1_0
             exit_px, exit_t, reason = None, after[-1].time, "청산"
             for b in after[i + 1:]:
                 if b.low <= stop:
-                    exit_px, exit_t, reason = stop, b.time, "손절"
+                    fill = min(stop, b.open)          # 갭으로 손절가 아래에서 시작하면 그 가격에 체결
+                    exit_px, exit_t, reason = (add_ticks(fill, -slip) if slip else fill), b.time, "손절"
                     break
             if exit_px is None:
-                exit_px = after[-1].close
+                exit_px = add_ticks(after[-1].close, -slip) if slip else after[-1].close
             ret = (exit_px / entry - 1) * 100 - cpct
             day_trades.append(BTTrade(date, code, after[i].time, entry, exit_px, exit_t, reason, ret,
                                       qty * entry / equity,

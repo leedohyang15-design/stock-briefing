@@ -267,3 +267,23 @@ def test_launcher_paper_default_and_live_confirmation(monkeypatch):
     monkeypatch.setattr("builtins.input", lambda prompt="": "아니오")
     calls.clear()
     assert launch.main(["--live", "--no-dashboard"]) == 1 and calls == {}     # 확인 문구 없으면 실계좌 안 켬
+
+
+def test_backtest_slippage_reduces_returns(tmp_path):
+    j = Journal(tmp_path / "t.db")
+    days = trading_days(12)[-6:]
+    _seed(j, days, WIN3)
+    s = Settings.load()
+    with_slip = backtest.run(j, s, days)
+    s0 = s.with_params({})
+    s0.data["execution"]["slippage_ticks"] = 0
+    no_slip = backtest.run(j, s0, days)
+    assert with_slip.n == no_slip.n and with_slip.mean_daily < no_slip.mean_daily
+
+
+def test_kis_buyable_cash(monkeypatch, tmp_path):
+    c, sess = _kis_with(monkeypatch, tmp_path, [{"rt_cd": "0", "output": {"nrcvb_buy_amt": "123456", "ord_psbl_cash": "999"}},
+                                                {"rt_cd": "1", "msg1": "x"}])
+    assert c.buyable_cash() == 123456
+    assert sess.seen[1][2]["tr_id"] == "TTTC8908R"
+    assert c.buyable_cash() is None

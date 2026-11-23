@@ -46,6 +46,28 @@ def start_dashboard(port: int = 8501):
     return httpd
 
 
+def run_with_restart(fn, max_restarts: int = 3, wait_sec: float = 10.0, sleep=None) -> int:
+    """예상치 못한 오류로 멈추면 최대 max_restarts 번 다시 시작 (보유 종목은 재시작 시 복원됨). 재시작 횟수 반환."""
+    import time
+    import traceback
+    sleep = sleep or time.sleep
+    restarts = 0
+    while True:
+        try:
+            fn()
+            return restarts
+        except KeyboardInterrupt:
+            raise
+        except Exception:  # noqa: BLE001
+            traceback.print_exc()
+            if restarts >= max_restarts:
+                print(f"[트레이더] {max_restarts}번 다시 시작했지만 계속 오류가 납니다. 멈춥니다 (보유 종목은 증권사 앱에서 확인하세요).")
+                raise
+            restarts += 1
+            print(f"[트레이더] 오류로 멈춤 → {wait_sec:.0f}초 뒤 다시 시작 ({restarts}/{max_restarts})")
+            sleep(wait_sec)
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="AI 단타 트레이더 원클릭 실행")
     ap.add_argument("--live", action="store_true", help="실계좌 (기본은 모의투자)")
@@ -73,11 +95,16 @@ def main(argv=None) -> int:
             print("취소했습니다.")
             return 1
 
+    if args.live:
+        print("=" * 60)
+        print("⚠️ 손절은 이 프로그램 안에서만 동작합니다. PC가 꺼지거나 절전·인터넷 끊김이면 손절이 안 걸립니다.")
+        print("   매수 체결 알림이 오면 증권사 앱에서 손절 예약(스탑로스)을 함께 걸어 두세요.")
+        print("=" * 60)
     dash = None if args.no_dashboard else start_dashboard()
     mode = "실계좌" if args.live else f"모의투자 (가상 {args.paper_cash:,.0f}원, 실제 주문 없음)"
     print(f"[트레이더] {mode} 시작. 이 창을 닫으면 멈춥니다. 장 마감 후 15:40 리포트까지 켜 두세요.")
     try:
-        build(dry_run=not args.live, paper_cash=args.paper_cash).run(args.paper_cash)
+        run_with_restart(lambda: build(dry_run=not args.live, paper_cash=args.paper_cash).run(args.paper_cash))
     except KeyboardInterrupt:
         print("\n사용자가 중지했습니다.")
     finally:

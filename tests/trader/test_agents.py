@@ -42,10 +42,33 @@ def test_news_check_keyword_and_llm_fallbacks():
 
 
 def test_regime_rules():
-    assert intraday.regime_check("0920", -0.5, None, -0.3, 0.0).decision == "reject"
-    assert intraday.regime_check("0920", 0.1, None, -0.3, 0.0).decision == "pass"
-    assert intraday.regime_check("1000", 1.0, -0.2, -0.3, 0.0).decision == "reject"
-    assert intraday.regime_check("1000", -1.0, 0.3, -0.3, 0.0).decision == "pass"
+    # 뚜렷한 약세(-1% 미만)일 때만 막는다 (예전: 오전에 0% 아래면 막음 → 너무 많은 날을 버림)
+    assert intraday.regime_check(-1.5, -1.0).decision == "reject"
+    assert intraday.regime_check(-0.5, -1.0).decision == "pass"
+    assert intraday.regime_check(0.8, -1.0).decision == "pass"
+
+
+def test_stop_floor_by_ticks_and_cost():
+    cfg = {"stop_atr_mult": 0.1, "min_stop_ticks": 5, "min_stop_cost_mult": 2.0}
+    # ATR 200 → 20원 vs 5호가 50원 vs 비용 2×0.23%=46원 → 50원
+    assert st.stop_for(10_000, 200, cfg, 0.23) == 9_950
+    # ATR 큰 종목은 논문 규칙(ATR×0.1)이 그대로
+    assert st.stop_for(10_000, 2_000, cfg, 0.23) == 9_800
+
+
+def test_measured_relative_volume_used_when_enough_days():
+    cfg = dict(S.strategy)
+    daily = [Bar(str(i), 10000, 10300, 9700, 10000, 1_000_000) for i in range(20)]
+    orb = [Bar("0900", 10000, 10100, 9990, 10050, 60_000), Bar("0904", 10050, 10150, 10000, 10100, 60_000)]
+    c = [Candidate("A", "a")]
+    est, _ = intraday.scan_stocks_in_play(c, {"A": orb}, {"A": daily}, cfg)
+    assert not est[0].relvol_measured and round(est[0].relvol, 1) == 2.4      # 120k / (1M×0.05)
+    meas, r = intraday.scan_stocks_in_play(c, {"A": orb}, {"A": daily}, cfg, {"A": (40_000, 12)})
+    assert meas[0].relvol_measured and meas[0].relvol == 3.0                 # 120k / 40k
+    few, _ = intraday.scan_stocks_in_play(c, {"A": orb}, {"A": daily}, cfg, {"A": (40_000, 5)})
+    assert not few[0].relvol_measured                                        # 10일 미만 → 추정
+    days = [[Bar("0900", 1, 1, 1, 1, 10_000), Bar("0904", 1, 1, 1, 1, 30_000)], [Bar("0902", 1, 1, 1, 1, 20_000)], []]
+    assert st.open_volume_avg(days, 5) == (30_000, 2)
 
 
 def test_vi_check():

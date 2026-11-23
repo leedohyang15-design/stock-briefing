@@ -19,11 +19,15 @@ class InPlay:
     avg_value: float
     prev_close: float
     note: str = ""
+    relvol_measured: bool = False   # True = 같은 시간대 과거 거래량 실측, False = 일거래량 비율 추정
 
 
 def scan_stocks_in_play(cands: Sequence[Candidate], or_bars: Dict[str, List[Bar]], daily: Dict[str, List[Bar]],
-                        cfg: Dict[str, Any]) -> (List[InPlay], AgentResult):
-    """상대거래량 순위 (Zarattini 외). 필터: 최소 주가, 평균 거래대금, ATR%."""
+                        cfg: Dict[str, Any], open_avg: Optional[Dict[str, tuple]] = None) -> (List[InPlay], AgentResult):
+    """상대거래량 순위 (Zarattini 외). 필터: 최소 주가, 평균 거래대금, ATR%.
+
+    open_avg: {code: (과거 같은 시간대 평균 거래량, 일수)}. 일수가 relvol_min_days 이상이면 실측, 아니면 추정."""
+    open_avg = open_avg or {}
     rows: List[InPlay] = []
     skipped: Dict[str, str] = {}
     for c in cands:
@@ -45,22 +49,27 @@ def scan_stocks_in_play(cands: Sequence[Candidate], or_bars: Dict[str, List[Bar]
         if a / price * 100 < cfg["min_atr_pct"]:
             skipped[c.code] = "변동성(ATR) 미달"
             continue
-        rv = st.relative_volume(rng.volume, st.avg_volume(d, cfg.get("atr_days", 14)), cfg["open_volume_share"])
+        avg_open, n_days = open_avg.get(c.code, (0.0, 0))
+        measured = n_days >= cfg.get("relvol_min_days", 10) and avg_open > 0
+        rv = (rng.volume / avg_open) if measured else \
+            st.relative_volume(rng.volume, st.avg_volume(d, cfg.get("atr_days", 14)), cfg["open_volume_share"])
         if rv < cfg["relvol_min"]:
             skipped[c.code] = f"상대거래량 {rv:.1f} < {cfg['relvol_min']}"
             continue
         rows.append(InPlay(code=c.code, name=c.name, relvol=rv, atr=a, rng=rng, avg_value=avgv,
-                           prev_close=d[-1].close, note=c.pm_note))
+                           prev_close=d[-1].close, note=c.pm_note, relvol_measured=measured))
     rows.sort(key=lambda r: r.relvol, reverse=True)
     top = rows[: cfg["relvol_top_n"]]
-    txt = ", ".join(f"{r.name}({r.relvol:.1f}배)" for r in top) or "조건을 만족하는 종목 없음"
+    txt = ", ".join(f"{r.name}({r.relvol:.1f}배{'' if r.relvol_measured else ' 추정'})" for r in top) or "조건을 만족하는 종목 없음"
     return top, AgentResult(9, "Stocks in Play", "info", f"상위 {len(top)}종목: {txt}",
                             {"top": [{"code": r.code, "name": r.name, "relvol": round(r.relvol, 2)} for r in top],
                              "skipped": skipped})
 
 
 def sip_result(ip: InPlay, rank: int) -> AgentResult:
-    return AgentResult(9, "Stocks in Play", "pass", f"상대거래량 {ip.relvol:.1f}배, {rank}위", {"relvol": ip.relvol})
+    how = "같은 시간대 과거 평균 대비 실측" if ip.relvol_measured else "일거래량 비율로 추정"
+    return AgentResult(9, "Stocks in Play", "pass", f"상대거래량 {ip.relvol:.1f}배 ({how}), {rank}위",
+                       {"relvol": ip.relvol, "measured": ip.relvol_measured})
 
 
 # ── 10. ORB 신호 ──────────────────────────────────────
@@ -132,18 +141,17 @@ def news_check(llm, name: str, news: List[Dict[str, str]], notices: List[Dict[st
     return AgentResult(12, "실시간 뉴스·공시", out["verdict"], out.get("reason", ""), {"checked": len(items)})
 
 
-# ── 13. 시장 분위기 (Gao 외: 지수 장 초반 모멘텀) ─────────
-def regime_check(now_hhmm: str, index_change_pct: float, first30_ret_pct: Optional[float],
-                 early_min: float, first30_min: float, market: str = "코스피") -> AgentResult:
-    data = {"index_change_pct": index_change_pct, "first30_ret_pct": first30_ret_pct}
-    if now_hhmm >= "0930" and first30_ret_pct is not None:
-        if first30_ret_pct < first30_min:
-            return AgentResult(13, "시장 분위기", "reject",
-                               f"{market} 첫 30분 수익률 {first30_ret_pct:+.2f}% < {first30_min:+.2f}% → 신규 진입 중단", data)
-        return AgentResult(13, "시장 분위기", "pass", f"{market} 첫 30분 {first30_ret_pct:+.2f}% (상승 유지)", data)
-    if index_change_pct < early_min:
-        return AgentResult(13, "시장 분위기", "reject", f"{market} {index_change_pct:+.2f}% < {early_min:+.2f}% → 진입 보류", data)
-    return AgentResult(13, "시장 분위기", "pass", f"{market} {index_change_pct:+.2f}%", data)
+# ── 13. 시장 분위기 ───────────────────────────────────
+def regime_check(index_change_pct: float, block_below_pct: float, market: str = "코스피·코스닥") -> AgentResult:
+    """뚜렷한 약세장(지수 평균 등락률 < 기준)에서만 신규 매수 중단. 매수만 하는 전략이라 급락장 회피용.
+
+    참고: Gao 외(JFE 2018)는 '첫 30분이 마지막 30분을 예측'한다는 연구로, 하루 전체 진입 금지의 직접 근거는 아니다.
+    기준값은 백테스트로 검증할 수 없어(과거 지수 분봉 미보관) 보수적인 고정값(-1%)으로 둔다."""
+    data = {"index_change_pct": index_change_pct, "block_below_pct": block_below_pct}
+    if index_change_pct < block_below_pct:
+        return AgentResult(13, "시장 분위기", "reject",
+                           f"{market} 평균 {index_change_pct:+.2f}% < {block_below_pct:+.1f}% (뚜렷한 약세) → 신규 진입 중단", data)
+    return AgentResult(13, "시장 분위기", "pass", f"{market} 평균 {index_change_pct:+.2f}% (기준 {block_below_pct:+.1f}% 이상)", data)
 
 
 # ── 14. VI 감시 ─────────────────────────────────────

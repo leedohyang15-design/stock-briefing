@@ -180,6 +180,33 @@ def diagnose(token: str, chat_id: str) -> int:
     return 1
 
 
+class AutoApprove:
+    """모의투자용: 매수 승인을 즉시 자동으로 처리하고, 텔레그램에는 알림만 보낸다.
+    (사람 승인 지연 없이 전략 자체의 성능을 재기 위해)"""
+
+    def __init__(self, inner):
+        self.inner = inner
+        self.enabled = getattr(inner, "enabled", False)
+
+    def send(self, text):
+        return self.inner.send(text)
+
+    def request_approval(self, sid, text):
+        self.inner.send("🤖 [모의투자 자동 승인]\n" + text.replace("[매수 승인 요청]", "").split("3분 안에")[0].strip())
+
+    def approval_status(self, sid, timeout_sec):
+        return "approved"
+
+    def on(self, command, fn):
+        self.inner.on(command, fn)
+
+    def start(self):
+        self.inner.start()
+
+    def stop(self):
+        self.inner.stop()
+
+
 class NullTelegram:
     """텔레그램 미설정 (드라이런 전용): 승인은 자동, 알림은 콘솔."""
     enabled = False

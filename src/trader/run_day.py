@@ -25,7 +25,7 @@ from .llm import get_llm
 from .models import AgentResult, Candidate, Position, Quote, Signal, now_kst
 from .risk import DayState, check_loss_limit, evaluate, max_entries
 from .settings import Settings
-from .telegram_bot import NullTelegram, Telegram
+from .telegram_bot import AutoApprove, NullTelegram, Telegram
 from .ticks import add_ticks, cost_pct
 
 _ETF_WORDS = ("KODEX", "TIGER", "KBSTAR", "ACE ", "SOL ", "HANARO", "ARIRANG", "KOSEF", "RISE ", "PLUS ", "ETN",
@@ -67,7 +67,6 @@ class DayTrader:
         self.first30: Optional[float] = None
         self.regime: Optional[AgentResult] = None
         self._last_index = 0.0
-        self._first30_missed = False
         self._regime_blocked = False
         self._last_bars = 0.0
         self.cost_pct = cost_pct(settings.costs.get("fee_pct", 0.015), settings.costs.get("sell_tax_pct", 0.2))
@@ -141,8 +140,10 @@ class DayTrader:
                      "\n".join(f"· {r.agent}: {r.reason}" for r in rep.results[:5]))
         # 일봉·과거 분봉 미리 받기 (타임머신·Stocks in Play 계산용)
         budget = 0
-        for c in rep.watchlist + [Candidate(p["code"], p["name"]) for p in rep.pool[:20]]:
+        minutes = self.s.strategy["orb_minutes"]
+        for c in rep.watchlist + [Candidate(p["code"], p["name"]) for p in rep.pool[:30]]:
             datalog.ensure_daily(self.kis, self.j, c.code, 40)
+            datalog.ensure_open_volumes(self.kis, self.j, c.code, minutes, 14)  # 실측 상대거래량용 (날짜당 1회 호출)
         if self.s.timemachine.get("enabled", True):
             for c in rep.watchlist:
                 if budget > 2000:
@@ -177,10 +178,13 @@ class DayTrader:
                 or_bars[c.code] = self.kis.minute_bars_today(c.code, or_end + "00")
             except Exception as e:  # noqa: BLE001
                 self.j.event("오류", f"분봉 실패 {c.name}: {e}", c.code)
-        top, r9 = intraday.scan_stocks_in_play(cands, or_bars, daily, cfg)
+        self.scanned = [c.code for c in cands]   # 장 마감 후 후보 전체 분봉 저장 (백테스트 선택 편향 완화)
+        open_avg = {c.code: datalog.open_avg_from_db(self.j, c.code, self.today(), cfg["orb_minutes"]) for c in cands}
+        top, r9 = intraday.scan_stocks_in_play(cands, or_bars, daily, cfg, open_avg)
         n = cfg["relvol_top_n"] if not self.state or self.state.aggression != "low" else max(1, cfg["relvol_top_n"] // 2)
         top = top[:n]
-        r9.reason = f"상위 {len(top)}종목: " + ", ".join(f"{t.name}({t.relvol:.1f}배)" for t in top)
+        r9.reason = f"상위 {len(top)}종목: " + ", ".join(
+            f"{t.name}({t.relvol:.1f}배{'' if t.relvol_measured else ' 추정'})" for t in top)
         self.j.agent_result(r9)
         self.inplay = {t.code: t for t in top}
         for i, t in enumerate(top):
@@ -208,17 +212,7 @@ class DayTrader:
                 except Exception as e:  # noqa: BLE001
                     print(f"[index] {m} 실패: {e}")
             avg = (self.index["KOSPI"] + self.index["KOSDAQ"]) / 2
-            now = self.hhmm()
-            if self.first30 is None and not self._first30_missed and now >= "0930":
-                if now < "0945":
-                    self.first30 = avg
-                    self.j.event("정보", f"지수 첫 30분 수익률 {avg:+.2f}% (코스피·코스닥 평균)")
-                else:  # 늦게 시작해 09:30 값을 모름 → 현재 지수로 판단
-                    self._first30_missed = True
-                    self.j.event("정보", f"{now[:2]}:{now[2:]} 시작이라 첫 30분 수익률을 알 수 없음 → 현재 지수 등락률로 판단")
-            cfg = self.s.strategy
-            self.regime = intraday.regime_check(now, avg, self.first30, cfg["regime_early_min_pct"],
-                                                cfg["regime_first30_min_pct"], "코스피·코스닥")
+            self.regime = intraday.regime_check(avg, self.s.strategy["regime_block_below_pct"])
             blocked = self.regime.blocks
             if blocked != self._regime_blocked:
                 self._regime_blocked = blocked
@@ -256,7 +250,7 @@ class DayTrader:
         if r10.decision != "pass":
             return
         limit = add_ticks(q.price, 1)
-        stop = st.stop_price(limit, ip.atr, cfg["stop_atr_mult"])
+        stop = st.stop_for(limit, ip.atr, cfg, self.cost_pct)
         sig = Signal(ip.code, ip.name, q.price, ip.rng.high, ip.rng.low, ip.atr, stop)
         sid = self.j.new_signal(sig, {"relvol": ip.relvol, "time": self.hhmm(), "rank": rank})
         cs.signals += 1
@@ -349,6 +343,12 @@ class DayTrader:
             self.j.update_signal(cs.sid, "rejected", f"승인 후 리스크 재검사 거부: {r.reason}")
             self.j.event("거부", f"{ip.name} 승인 후 리스크 재검사 거부: {r.reason}", code)
             return
+        sig_ts = self.j.query("SELECT ts FROM signals WHERE id=?", (cs.sid,))
+        if sig_ts:
+            import datetime as _dt
+            wait = (self.now() - _dt.datetime.fromisoformat(sig_ts[0]["ts"])).total_seconds()
+            self.j.event("정보", f"{ip.name} 승인까지 {wait:.0f}초 (승인 지연이 성과에 주는 영향은 주간 복기에서 측정)", code,
+                         {"approval_sec": wait})
         filled = self.ex.enter(code, ip.name, min(p["qty"], r.data["qty"]), p["limit"], p["stop"], cs.sid)
         cs.status = "done"
         self.j.agent_result(AgentResult(16, "주문 실행·청산", "pass" if filled else "wait",
@@ -397,7 +397,7 @@ class DayTrader:
             "regime": self.regime.__dict__ if self.regime else None, "index": self.index, "first30": self.first30,
         })
         self.j.snapshot("inplay", [{
-            "code": c, "name": ip.name, "relvol": ip.relvol, "or_high": ip.rng.high, "or_low": ip.rng.low,
+            "code": c, "name": ip.name, "relvol": ip.relvol, "relvol_measured": ip.relvol_measured, "or_high": ip.rng.high, "or_low": ip.rng.low,
             "or_end": ip.rng.end, "atr": ip.atr, "vi_upper": st.static_vi_upper(ip.rng.open, self.s.strategy["static_vi_pct"]),
             "price": self.quotes[c].price if c in self.quotes else None,
             "change_pct": self.quotes[c].change_pct if c in self.quotes else None,
@@ -406,17 +406,31 @@ class DayTrader:
 
     # ── 전체 일정 ──
     def start(self, paper_cash: float) -> None:
-        cash, _, total = self.broker.balance()
+        if self.broker.mode == "paper":  # 재시작이면 오늘 일지의 열린 가상 보유를 되살림
+            for t in self.j.open_trades():
+                if t["date"] == self.today() and t["mode"] == "paper":
+                    self.broker.load_position(t["code"], t["name"], t["qty"], t["entry_price"])
+        cash, held, total = self.broker.balance()
         self.state = DayState(start_equity=total or cash or paper_cash, cash=cash)
-        if self.broker.mode == "live":
-            self.ex.restore(self._restore_stop)
+        today_trades = self.j.query("SELECT code, net_pnl, exit_ts FROM trades WHERE date=?", (self.today(),))
+        if held or today_trades:  # 장중 재시작: 오늘 손익·진입 횟수·보유 복원
+            if held:
+                self.ex.restore(self._restore_stop)
+            realized = sum(t["net_pnl"] or 0 for t in today_trades if t["exit_ts"])
+            self.state.realized_pnl = realized
             self.state.positions = len(self.ex.positions)
-            self.state.traded_codes |= set(self.ex.positions)
+            self.state.entries = len(today_trades)
+            self.state.traded_codes |= {t["code"] for t in today_trades}
+            if self.broker.mode == "paper":
+                self.state.start_equity = paper_cash
+            else:
+                self.state.start_equity = (total - realized) or total  # 보유 평가손익은 근사적으로 무시
+            self.j.event("정보", f"장중 재시작 복원: 오늘 거래 {len(today_trades)}건, 실현 {realized:+,.0f}원, 보유 {len(held)}종목")
         self.j.event("정보", f"[{self.broker.mode}] 시작 · 평가금 {self.state.start_equity:,.0f}원 · 예수금 {cash:,.0f}원")
 
     def _restore_stop(self, p: Position) -> float:
         a = st.atr(datalog.ensure_daily(self.kis, self.j, p.code, 30)) or p.avg_price * 0.05
-        return st.stop_price(p.avg_price, a, self.s.strategy["stop_atr_mult"])
+        return st.stop_for(p.avg_price, a, self.s.strategy, self.cost_pct)
 
     def run(self, paper_cash: float = 1_000_000.0) -> None:
         sch, risk, cfg = self.s.schedule, self.s.risk, self.s.strategy
@@ -463,7 +477,8 @@ class DayTrader:
         self.snapshot()
         self.wait_until(_hhmm(sch.get("review_time", "15:40")))
         self.set_phase("review")
-        datalog.record_eod(self.kis, self.j, list(self.inplay) + [c.code for c in (self.report.watchlist if self.report else [])])
+        datalog.record_eod(self.kis, self.j, list(self.inplay) + list(getattr(self, "scanned", [])) +
+                           [c.code for c in (self.report.watchlist if self.report else [])])
         _, text = daily_review(self.j, self.llm, self.today(), self.state.start_equity, self.broker.mode)
         self.j.event("정보", "일일 복기 완료")
         self.tg.send(text)
@@ -478,8 +493,11 @@ def build(dry_run: bool, settings: Optional[Settings] = None, paper_cash: float 
     j = Journal()
     sec = s.secrets
     if dry_run:
-        broker = PaperBroker(lambda c: kis.quote(c).price, cash=paper_cash)
+        broker = PaperBroker(lambda c: kis.quote(c).price, cash=paper_cash,
+                             slippage_ticks=s.execution.get("slippage_ticks", 1))
         tg = Telegram(sec.telegram_token, sec.telegram_chat_id) if sec.has_telegram else NullTelegram()
+        if s.approval.get("paper_mode", "auto") == "auto":
+            tg = AutoApprove(tg)
     else:
         if not sec.has_telegram or s.approval.get("mode") != "telegram":
             raise SystemExit("실계좌는 텔레그램 승인이 필수입니다 (.env 의 TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID, approval.mode: telegram)")

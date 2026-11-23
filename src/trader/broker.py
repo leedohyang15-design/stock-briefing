@@ -9,6 +9,7 @@ import itertools
 from typing import Callable, Dict, Tuple
 
 from .models import OrderResult, Position
+from .ticks import add_ticks
 
 
 class LiveBroker:
@@ -18,7 +19,9 @@ class LiveBroker:
         self.kis = kis
 
     def balance(self):
-        return self.kis.balance()
+        cash, pos, total = self.kis.balance()
+        exact = self.kis.buyable_cash()   # 잔고의 D+2 예수금 대신 '미수 없는 매수 가능 금액'
+        return (exact if exact is not None else cash), pos, total
 
     def buy_limit(self, code, qty, price) -> OrderResult:
         return self.kis.buy_limit(code, qty, price)
@@ -34,11 +37,16 @@ class LiveBroker:
 
 
 class PaperBroker:
-    """가상 계좌. price_fn(code) 로 현재가를 받아 지정가가 현재가 이상이면 즉시 체결."""
+    """가상 계좌. 체결은 보수적으로 가정한다 (미끄러짐 slippage_ticks).
+
+    - 매수(지정가 L): 현재가 + n호가 ≤ L 일 때만 체결, 체결가 = 현재가 + n호가
+    - 매도(시장가): 체결가 = 현재가 - n호가. 손절은 가격이 손절가 아래로 갭이 나도 그 아래 가격에 체결된다.
+    """
     mode = "paper"
 
-    def __init__(self, price_fn: Callable[[str], float], cash: float = 1_000_000.0):
+    def __init__(self, price_fn: Callable[[str], float], cash: float = 1_000_000.0, slippage_ticks: int = 1):
         self.price_fn = price_fn
+        self.slip = int(slippage_ticks)
         self.cash = cash
         self.positions: Dict[str, Position] = {}
         self.orders: Dict[str, Tuple[int, float, int]] = {}
@@ -50,7 +58,7 @@ class PaperBroker:
 
     def buy_limit(self, code, qty, price) -> OrderResult:
         oid = f"P|{next(self._ids)}"
-        px = self.price_fn(code)
+        px = add_ticks(self.price_fn(code), self.slip) if self.slip else self.price_fn(code)
         if px <= price and qty * px <= self.cash:
             self.cash -= qty * px
             pos = self.positions.get(code)
@@ -67,7 +75,7 @@ class PaperBroker:
     def sell(self, code, qty, price=None) -> OrderResult:
         oid = f"P|{next(self._ids)}"
         pos = self.positions.get(code)
-        px = self.price_fn(code)
+        px = add_ticks(self.price_fn(code), -self.slip) if self.slip else self.price_fn(code)
         if not pos or (price is not None and px < price):
             self.orders[oid] = (0, 0.0, qty)
             return OrderResult(True, order_no=oid, message="paper")
@@ -78,6 +86,11 @@ class PaperBroker:
             del self.positions[code]
         self.orders[oid] = (q, px, qty - q)
         return OrderResult(True, order_no=oid, message="paper")
+
+    def load_position(self, code: str, name: str, qty: int, avg_price: float) -> None:
+        """재시작 시 일지의 열린 거래로 가상 보유를 복원."""
+        self.positions[code] = Position(code=code, name=name, qty=qty, avg_price=avg_price, stop=0.0)
+        self.cash -= qty * avg_price
 
     def cancel(self, order_no, code="") -> bool:
         f, a, _ = self.orders.get(order_no, (0, 0.0, 0))

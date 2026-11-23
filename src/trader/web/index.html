@@ -183,7 +183,7 @@ function renderStocks(){
   put('stocks',ip.length?ip.map(i=>{const lo=i.or_low,hi=i.or_high,p=i.price||i.or_high, span=(hi-lo)||1, mn=Math.min(lo-span,p), mx=Math.max(hi+span,p), w=mx-mn||1;
     const toB=p>hi?'돌파함':`돌파까지 ${pct((hi-p)/p*100,1)}`;const pos=i.position?` · ${pct((p-i.position.avg_price)/i.position.avg_price*100)}`:'';
     return `<button class="stock ${i.code===sel?'sel':''}" data-c="${i.code}"><span class="nm">${esc(i.name)} <span class="small muted mono">${i.code}</span></span>${chipOf(i)}
-    <span class="small"><span class="mono">${won(i.price)}</span> <span class="${cls(i.change_pct)}">${pct(i.change_pct)}</span> · 거래량 평소 ${(i.relvol||0).toFixed(1)}배${pos}</span><span class="small ${p>hi?'up':'muted'}">${toB}</span>
+    <span class="small"><span class="mono">${won(i.price)}</span> <span class="${cls(i.change_pct)}">${pct(i.change_pct)}</span> · 거래량 평소 ${(i.relvol||0).toFixed(1)}배${i.relvol_measured?'':'(추정)'}${pos}</span><span class="small ${p>hi?'up':'muted'}">${toB}</span>
     <span class="orb"><span class="rng" style="left:${(lo-mn)/w*100}%;width:${span/w*100}%"></span><span class="px" style="left:calc(${(p-mn)/w*100}% - 1px)"></span></span>
     ${i.note?`<span class="small muted" style="grid-column:1/3">${esc(i.note)}</span>`:''}</button>`}).join(''):'<div class="empty">09:05 이후 거래량이 몰린 종목을 골라 여기에 보여줘요.</div>');
   document.querySelectorAll('.stock').forEach(b=>b.onclick=()=>{sel=b.dataset.c;cache.stocks='';renderAll(true)});

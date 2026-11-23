@@ -60,6 +60,31 @@ def ensure_history(kis, journal: Journal, code: str, days: int = 59, budget_call
     return {d: journal.bars(code, d) for d in dates if d in set(journal.bar_dates(code))}
 
 
+def ensure_open_volumes(kis, journal: Journal, code: str, minutes: int, days: int = 14) -> None:
+    """실측 상대거래량용: 최근 days 거래일의 09:00~시가범위 끝 분봉을 받아 저장 (날짜당 1회 호출, 캐시)."""
+    from . import strategy as st
+    today = now_kst().strftime("%Y%m%d")
+    until = st.hhmm_add("0900", minutes) + "00"
+    for d in [b.date for b in journal.daily_bars(code, before=today, n=days)]:
+        if journal.bars(code, d)[:1] and journal.bars(code, d)[0].time <= "0900":
+            continue
+        try:
+            bars = kis.minute_bars_past(code, d, until)
+        except Exception as e:  # noqa: BLE001
+            print(f"[datalog] 시가 분봉 실패 {code} {d}: {e}")
+            return
+        if not bars:
+            return  # API 가 과거 분봉을 주지 않음
+        journal.save_bars(code, bars)
+
+
+def open_avg_from_db(journal: Journal, code: str, before: str, minutes: int, days: int = 14):
+    """(과거 같은 시간대 평균 거래량, 일수)."""
+    from . import strategy as st
+    dates = [d for d in journal.bar_dates(code) if d < before][-days:]
+    return st.open_volume_avg([journal.bars(code, d) for d in dates], minutes)
+
+
 def history_from_db(journal: Journal, code: str, before: str, days: int = 59) -> Dict[str, List[Bar]]:
     dates = [d for d in journal.bar_dates(code) if d < before][-days:]
     return {d: journal.bars(code, d) for d in dates}

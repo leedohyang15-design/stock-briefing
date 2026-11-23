@@ -73,8 +73,8 @@ def simulate(history: Dict[str, List[Bar]], now_hhmm: str, flatten_hhmm: str, en
     }
 
 
-def replay_history(history: Dict[str, List[Bar]], orb_minutes: int, atr_value: float, stop_mult: float,
-                   flatten_hhmm: str, require_bullish: bool = True) -> Dict[str, int]:
+def replay_history(history: Dict[str, List[Bar]], orb_minutes: int, atr_value: float, cfg_st: Dict,
+                   flatten_hhmm: str, require_bullish: bool = True, cost_pct: float = 0.23) -> Dict[str, int]:
     """과거 거래일마다 같은 ORB 규칙을 적용했을 때의 결과."""
     res = {"fired": 0, "profit": 0, "stop": 0, "loss": 0}
     for bars in history.values():
@@ -87,7 +87,7 @@ def replay_history(history: Dict[str, List[Bar]], orb_minutes: int, atr_value: f
             continue
         res["fired"] += 1
         entry = max(rng.high, after[entry_i].open)
-        stp = st.stop_price(entry, atr_value, stop_mult)
+        stp = st.stop_for(entry, atr_value, cfg_st, cost_pct)
         out = None
         for b in after[entry_i + 1:]:
             if b.low <= stp:
@@ -110,8 +110,8 @@ def check(history: Dict[str, List[Bar]], now_hhmm: str, flatten_hhmm: str, entry
                            {"days": days})
     sim = simulate(history, now_hhmm, flatten_hhmm, entry, stop, cfg_tm.get("paths", 10000),
                    cfg_tm.get("seed", 19), cost_pct)
-    hist = replay_history(history, cfg_st["orb_minutes"], atr_value, cfg_st["stop_atr_mult"], flatten_hhmm,
-                          cfg_st.get("require_bullish_or", True))
+    hist = replay_history(history, cfg_st["orb_minutes"], atr_value, cfg_st, flatten_hhmm,
+                          cfg_st.get("require_bullish_or", True), cost_pct)
     if sim is None:
         return AgentResult(18, "타임머신", "info", "남은 시간대 데이터 부족 → 참고만", {"history": hist})
     data = {**{k: round(v, 2) for k, v in sim.items()}, "history": hist}

@@ -19,10 +19,13 @@ strategy:
   orb_minutes: 5               # 시가범위 길이(분). 논문 기본값 5분
   require_bullish_or: true     # 시가범위 캔들이 양봉일 때만 매수 (논문: 방향 = 첫 캔들 방향, 국내는 매수만)
   stop_atr_mult: 0.10          # 손절 = 진입가 - 14일 ATR × 0.10 (논문)
+  min_stop_ticks: 5            # 손절폭 하한 1: 최소 호가 수 (한국 호가단위·1분 잡음 대비)
+  min_stop_cost_mult: 2.0      # 손절폭 하한 2: 왕복 비용(%)의 몇 배
   atr_days: 14
   relvol_min: 1.0              # 상대거래량 최소 (논문: 1 이상)
   relvol_top_n: 10             # 상대거래량 상위 N 종목만 거래 (논문 20, API 호출량 고려 10)
-  open_volume_share: 0.05      # 하루 거래량 중 시가범위 구간이 차지하는 평균 비율(추정치). 주간 복기에서 실측값으로 갱신
+  open_volume_share: 0.05      # (예비) 실측 데이터가 10일 미만일 때만 쓰는 추정 비율. 주간 복기에서 실측값으로 갱신
+  relvol_min_days: 10          # 같은 시간대(09:00~시가범위 끝) 과거 거래량이 이 일수 이상 있으면 실측 상대거래량 사용
   min_price: 1000              # 최소 주가(원)
   min_avg_value_krw: 3000000000  # 14일 평균 거래대금 최소 (30억)
   min_atr_pct: 2.0             # 14일 ATR / 주가 최소 (%)
@@ -30,8 +33,7 @@ strategy:
   imbalance_min: 0.0           # (매수주도-매도주도)/(합) 가 이 값 초과일 때만 진입 (Chordia·Subrahmanyam)
   static_vi_pct: 10.0          # 정적 VI 발동 기준 (기준가 대비 ±10%)
   vi_guard_pct: 1.0            # 정적 VI 발동가까지 이 % 이내면 진입 금지
-  regime_early_min_pct: -0.3   # 09:30 전: 지수 등락률이 이 값 미만이면 신규 진입 중단
-  regime_first30_min_pct: 0.0  # 09:30 이후: 지수 첫 30분 수익률이 이 값 미만이면 신규 진입 중단 (Gao 외)
+  regime_block_below_pct: -1.0 # 코스피·코스닥 평균 등락률이 이 값 미만인 뚜렷한 약세일 때만 신규 진입 중단
 
 # ── 타임머신 (릴스: day-trader-skill 방식) ──
 timemachine:
@@ -50,8 +52,13 @@ news:
 
 # ── 승인 ──
 approval:
-  mode: telegram               # telegram | auto (auto 는 드라이런에서만 허용)
+  mode: telegram               # 실계좌: 텔레그램 버튼 승인 필수
+  paper_mode: auto             # 모의투자: auto = 즉시 자동 승인 (전략 자체 성능 측정), telegram = 버튼 승인
   timeout_sec: 180
+
+# ── 체결 가정 (모의투자 체결·백테스트 공통) ──
+execution:
+  slippage_ticks: 1            # 매수는 현재가보다 1호가 비싸게, 매도·손절은 1호가 싸게 체결된다고 가정
 
 # ── 비용 (확인 필요: 증권사 수수료·거래세는 바뀔 수 있음) ──
 costs:
@@ -77,7 +84,7 @@ kis:
 
 # ── 주간 업데이트 (과최적화 방지) ──
 weekly:
-  min_samples: 30              # 누적 거래 표본이 이보다 적으면 변경 제안 안 함
+  min_samples: 50              # 누적 거래 표본이 이보다 적으면 변경 제안 안 함
   max_param_changes: 2         # 한 번에 바꾸는 파라미터 수
   max_iterations: 3            # 손실 원인 분석 → 수정 → 재시험 반복 횟수
   holdout_days: 5              # 최근 N 거래일은 검증 구간
@@ -88,3 +95,4 @@ weekly:
     vi_guard_pct: [1.0, 2.0, 3.0]
     imbalance_min: [0.0, 0.1, 0.2]
     entry_end: ["15:10", "14:00", "11:00"]
+    min_stop_ticks: [3, 5, 8]

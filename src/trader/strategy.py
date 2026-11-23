@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from typing import Optional, Sequence, Tuple
 
 from .models import Bar, Trade
+from .ticks import tick_size
 
 
 def hhmm_add(hhmm: str, minutes: int) -> str:
@@ -79,6 +80,28 @@ def orb_long_trigger(price: float, rng: OpeningRange, require_bullish: bool = Tr
 
 def stop_price(entry: float, atr_value: float, mult: float) -> float:
     return entry - atr_value * mult
+
+
+def stop_for(entry: float, atr_value: float, cfg: dict, cost_pct: float) -> float:
+    """손절가 = 진입가 - max(ATR×배수(논문), 최소 호가 수, 왕복 비용×배수).
+
+    논문 그대로(ATR×0.1)면 한국 1만원대 종목은 손절폭이 호가 몇 칸·비용 수준이라 잡음에 털린다.
+    그래서 호가·비용 기준 하한을 둔다 (주간 복기 레버 min_stop_ticks 로 검증).
+    """
+    dist = max(atr_value * cfg.get("stop_atr_mult", 0.1),
+               tick_size(entry) * cfg.get("min_stop_ticks", 0),
+               entry * cost_pct / 100 * cfg.get("min_stop_cost_mult", 0))
+    return entry - dist
+
+
+def open_volume_avg(days: Sequence[Sequence[Bar]], minutes: int) -> Tuple[float, int]:
+    """과거 각 거래일 시가범위 구간(09:00~+minutes) 거래량의 평균과 일수. 실측 상대거래량의 분모."""
+    vols = []
+    for bars in days:
+        r = opening_range(bars, minutes)
+        if r and r.volume > 0:
+            vols.append(r.volume)
+    return (sum(vols) / len(vols) if vols else 0.0), len(vols)
 
 
 def position_size(equity: float, risk_pct: float, entry: float, stop: float,

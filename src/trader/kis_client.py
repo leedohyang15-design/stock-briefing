@@ -205,17 +205,17 @@ class KISClient:
         rows = self._bars_from(res.get("output2", [])) if self._ok(res) else []
         return sorted([b for b in rows if b.date in ("", today) and b.time >= "0900"], key=lambda b: b.time)
 
-    def minute_bars_past(self, code: str, date: str) -> List[Bar]:
-        """과거 특정일(YYYYMMDD) 09:00~15:30 1분봉 (실전 전용 API, 120개씩)."""
+    def minute_bars_past(self, code: str, date: str, until: str = "153000") -> List[Bar]:
+        """과거 특정일(YYYYMMDD) 09:00~until 1분봉 (실전 전용 API, 120개씩). until='090500' 이면 1회 호출."""
         bars: Dict[str, Bar] = {}
-        cursor = "153000"
+        cursor = until
         for _ in range(5):
             res = self._call("GET", "/uapi/domestic-stock/v1/quotations/inquire-time-dailychartprice",
                              "FHKST03010230", {"FID_COND_MRKT_DIV_CODE": "J", "FID_INPUT_ISCD": code,
                                                "FID_INPUT_HOUR_1": cursor, "FID_INPUT_DATE_1": date,
                                                "FID_PW_DATA_INCU_YN": "Y", "FID_FAKE_TICK_INCU_YN": ""})
             rows = self._bars_from(res.get("output2", [])) if self._ok(res) else []
-            rows = [b for b in rows if b.date == date and "0900" <= b.time <= "1530"]
+            rows = [b for b in rows if b.date == date and "0900" <= b.time <= until[:4]]
             if not rows:
                 break
             for b in rows:
@@ -289,6 +289,18 @@ class KISClient:
         return out[:limit]
 
     # ── 계좌 ─────────────────────────────────────────
+    def buyable_cash(self, code: str = "005930", price: int = 0) -> Optional[float]:
+        """매수가능조회 [국내주식-007]: 미수 없이 살 수 있는 금액. 실패 시 None."""
+        tr = "TTTC8908R" if self.env == "real" else "VTTC8908R"
+        res = self._call("GET", "/uapi/domestic-stock/v1/trading/inquire-psbl-order", tr, {
+            "CANO": self.cano, "ACNT_PRDT_CD": self.acnt, "PDNO": code, "ORD_UNPR": str(int(price)),
+            "ORD_DVSN": "01", "CMA_EVLU_AMT_ICLD_YN": "N", "OVRS_ICLD_YN": "N"})
+        if not self._ok(res):
+            return None
+        o = res.get("output", {}) or {}
+        v = _f(o.get("nrcvb_buy_amt")) or _f(o.get("ord_psbl_cash"))
+        return v
+
     def balance(self) -> Tuple[float, List[Position], float]:
         """(주문가능 예수금, 보유종목, 총평가금액)."""
         res = self._call("GET", "/uapi/domestic-stock/v1/trading/inquire-balance", self.tr.get("balance", "TTTC8434R"), {
