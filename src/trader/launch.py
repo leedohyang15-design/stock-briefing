@@ -17,7 +17,7 @@ import webbrowser
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-NEEDED = ["numpy", "yfinance", "yaml", "dotenv", "bs4", "lxml", "holidays", "google.genai"]
+NEEDED = (["webview"] if sys.platform == "win32" else []) + ["numpy", "yfinance", "yaml", "dotenv", "bs4", "lxml", "holidays", "google.genai"]
 
 
 def ensure_packages() -> None:
@@ -29,21 +29,42 @@ def ensure_packages() -> None:
             missing.append(m)
     if missing:
         print(f"[준비] 필요한 패키지 설치 중... ({', '.join(missing)}) 처음 한 번만 몇 분 걸립니다.")
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", "-r", str(ROOT / "requirements.txt")])
+        try:
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", "-r", str(ROOT / "requirements.txt")])
+        except subprocess.CalledProcessError:
+            # 전용 창(pywebview)만 실패한 경우엔 브라우저로 대신 열 수 있으니 계속 진행
+            print("[준비] 일부 패키지 설치에 실패했습니다. 전용 창 대신 브라우저로 열 수 있습니다.")
+            if [m for m in missing if m != "webview"]:
+                raise
 
 
 def start_dashboard(port: int = 8501):
-    """대시보드 서버를 같은 프로세스의 스레드로 띄우고 브라우저를 연다 (트레이더를 끄면 같이 꺼짐)."""
+    """대시보드 서버를 같은 프로세스의 스레드로 띄운다. (서버, 주소) 반환."""
     from .web.server import serve
     try:
         httpd = serve(port=port, block=False)
     except OSError:
-        print(f"[대시보드] {port} 포트가 이미 사용 중입니다 (이미 켜져 있을 수 있음). 브라우저만 엽니다.")
+        print(f"[대시보드] {port} 포트가 이미 사용 중입니다 (이미 켜져 있을 수 있음).")
         httpd = None
-    url = f"http://localhost:{port}"
-    webbrowser.open(url)
-    print(f"[대시보드] {url}")
-    return httpd
+    return httpd, f"http://localhost:{port}"
+
+
+def open_app_window(url: str) -> bool:
+    """브라우저 대신 전용 프로그램 창으로 연다 (윈도우 기본 Edge WebView2 사용). 창을 닫을 때까지 기다린다.
+    pywebview 가 없거나 실패하면 False (그때는 브라우저로 연다)."""
+    try:
+        import webview
+    except Exception:  # noqa: BLE001
+        return False
+    try:
+        webview.create_window("AI 단타 트레이딩 사무실", url, width=1440, height=920, min_size=(900, 600),
+                              confirm_close=True, background_color="#1a1c2c")
+        webview.start(localization={"global.quitConfirmation": "창을 닫으면 오늘 매매(모의투자)가 멈춥니다. 닫을까요?",
+                                    "global.ok": "닫기", "global.cancel": "계속 실행"})
+        return True
+    except Exception as e:  # noqa: BLE001
+        print(f"[창] 전용 창을 열지 못해 브라우저로 엽니다: {e}")
+        return False
 
 
 def run_with_restart(fn, max_restarts: int = 3, wait_sec: float = 10.0, sleep=None) -> int:
@@ -74,6 +95,7 @@ def main(argv=None) -> int:
     ap.add_argument("--yes", action="store_true", help="실계좌 확인 문구 생략 (작업 스케줄러용)")
     ap.add_argument("--paper-cash", type=float, default=100_000.0, help="모의투자 가상 예수금 (기본 10만원)")
     ap.add_argument("--no-dashboard", action="store_true")
+    ap.add_argument("--browser", action="store_true", help="전용 창 대신 브라우저로 화면 열기")
     ap.add_argument("--force", action="store_true", help="휴장일에도 실행 (연결 확인용)")
     args = ap.parse_args(argv)
 
@@ -100,11 +122,31 @@ def main(argv=None) -> int:
         print("⚠️ 손절은 이 프로그램 안에서만 동작합니다. PC가 꺼지거나 절전·인터넷 끊김이면 손절이 안 걸립니다.")
         print("   매수 체결 알림이 오면 증권사 앱에서 손절 예약(스탑로스)을 함께 걸어 두세요.")
         print("=" * 60)
-    dash = None if args.no_dashboard else start_dashboard()
+    dash, url = (None, None) if args.no_dashboard else start_dashboard()
     mode = "실계좌" if args.live else f"모의투자 (가상 {args.paper_cash:,.0f}원, 실제 주문 없음)"
-    print(f"[트레이더] {mode} 시작. 이 창을 닫으면 멈춥니다. 장 마감 후 15:40 리포트까지 켜 두세요.")
+    print(f"[트레이더] {mode} 시작. 창을 닫으면 멈춥니다. 장 마감 후 15:40 리포트까지 켜 두세요.")
+
+    def trader():
+        try:
+            run_with_restart(lambda: build(dry_run=not args.live, paper_cash=args.paper_cash).run(args.paper_cash))
+        except Exception as e:  # noqa: BLE001
+            print(f"[트레이더] 멈춤: {e}")
+
     try:
-        run_with_restart(lambda: build(dry_run=not args.live, paper_cash=args.paper_cash).run(args.paper_cash))
+        if url and not args.browser:
+            import threading
+            th = threading.Thread(target=trader, daemon=True)
+            th.start()
+            if open_app_window(url):          # 전용 창: 닫을 때까지 여기서 대기
+                print("창을 닫아서 트레이더를 멈췄습니다.")
+                return 0
+            webbrowser.open(url)              # 전용 창을 못 열면 브라우저로
+            while th.is_alive():
+                th.join(1.0)
+        else:
+            if url:
+                webbrowser.open(url)
+            trader()
     except KeyboardInterrupt:
         print("\n사용자가 중지했습니다.")
     finally:

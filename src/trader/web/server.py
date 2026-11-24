@@ -124,6 +124,12 @@ def make_handler(j: Journal, password: Optional[str] = None):
             try:
                 if u.path in ("/", "/index.html"):
                     self._send(200, (HERE / "index.html").read_bytes(), "text/html; charset=utf-8")
+                elif u.path.startswith("/vendor/fonts/") and u.path.endswith(".woff2"):
+                    f = HERE / "vendor" / "fonts" / Path(u.path).name   # 이름만 사용 (경로 탈출 방지)
+                    if f.is_file():
+                        self._send(200, f.read_bytes(), "font/woff2")
+                    else:
+                        self._send(404, b"not found", "text/plain")
                 elif u.path == "/vendor/lightweight-charts.standalone.production.js":
                     self._send(200, (HERE / "vendor" / "lightweight-charts.standalone.production.js").read_bytes(),
                                "application/javascript; charset=utf-8")
