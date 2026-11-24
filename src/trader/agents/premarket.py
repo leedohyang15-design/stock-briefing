@@ -130,7 +130,7 @@ def _safe(fn, default):
 def agent_macro(llm, lines: List[str]) -> AgentResult:
     out = llm.json(_sys("매크로 분석가"), "간밤 해외 지수·환율·원자재:\n" + "\n".join(lines) +
                    '\n\n오늘 국내 증시 분위기를 -2(매우 약세)~+2(매우 강세) 정수 점수로 평가하라. '
-                   '형식: {"score": 정수, "summary": "한 문장"}', 300) if llm.available and lines else None
+                   '형식: {"score": 정수, "summary": "한 문장"}', 300, priority="high") if llm.available and lines else None
     if out and "score" in out:
         score = max(-2, min(2, int(out.get("score", 0))))
         return AgentResult(1, "매크로", "info", f"분위기 {score:+d} · {out.get('summary', '')}", {"score": score})
@@ -145,7 +145,7 @@ def agent_macro(llm, lines: List[str]) -> AgentResult:
 def agent_news(llm, headlines: List[str]) -> AgentResult:
     out = llm.json(_sys("시사·뉴스 분석가"), "오늘 아침 주요 증시 뉴스 제목:\n" + "\n".join(f"- {h}" for h in headlines) +
                    '\n\n수혜·피해가 예상되는 업종을 뽑아라. 형식: {"positive": ["업종"], "negative": ["업종"], '
-                   '"summary": "한 문장"}', 400) if llm.available and headlines else None
+                   '"summary": "한 문장"}', 400, priority="high") if llm.available and headlines else None
     if out:
         return AgentResult(2, "시사·뉴스", "info", out.get("summary", ""),
                            {"positive": out.get("positive", []), "negative": out.get("negative", []), "headlines": headlines})
@@ -224,7 +224,7 @@ def agent_debate(llm, brief: str, pool: List[Dict[str, Any]]) -> (AgentResult, A
                    "\n\n후보 종목 중 최대 10개에 대해 강세론자(오늘 단타로 살 이유)와 약세론자(사면 안 되는 이유·위험)의 "
                    "주장을 각각 40자 이내 한 문장으로 써라. 약세론은 반드시 구체적인 위험을 써라 "
                    "(예: 전일 급등 후 차익매물, 거래대금 감소, 업종 약세, 공시·뉴스 위험, 고평가). '없음'은 쓰지 마라. "
-                   '형식: {"items": [{"code": "종목코드", "bull": "...", "bear": "..."}]}', 3000) if llm.available else None
+                   '형식: {"items": [{"code": "종목코드", "bull": "...", "bear": "..."}]}', 3000, priority="high") if llm.available else None
     bull: Dict[str, str] = {}
     bear: Dict[str, str] = {}
     for it in (out or {}).get("items", []) or []:
@@ -260,7 +260,7 @@ def agent_pm(llm, brief: str, bull: Dict[str, str], bear: Dict[str, str], pool: 
               "오늘의 공격성(low/normal/high)을 정하라. 관심종목도 장중 규칙(시가범위 돌파 등)을 통과해야만 매수된다. "
               '형식: {"watchlist": [{"code": "종목코드", "note": "한 문장"}], "exclude": [{"code": "종목코드", "reason": "..."}], '
               '"aggression": "normal", "summary": "한 문장"}')
-    out = llm.json(_sys("수석 트레이더(PM)"), prompt, 1200) if llm.available else None
+    out = llm.json(_sys("수석 트레이더(PM)"), prompt, 1200, priority="high") if llm.available else None
     names = {s["code"]: s["name"] for s in pool}
     wl: List[Dict[str, str]] = []
     excl: Dict[str, str] = {}

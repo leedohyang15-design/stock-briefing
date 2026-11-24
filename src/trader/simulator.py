@@ -55,7 +55,7 @@ class FakeLLM:
     def why_none(self):
         return "LLM 키 없음"
 
-    def json(self, system, prompt, max_tokens=800):
+    def json(self, system, prompt, max_tokens=800, priority="normal"):
         self.calls += 1
         return self.replies.pop(0) if self.replies else None
 

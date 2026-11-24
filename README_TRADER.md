@@ -63,6 +63,8 @@ TELEGRAM_CHAT_ID=...
 GEMINI_API_KEY=...
 ```
 
+> 🤖 **AI 호출 예산**: Gemini 무료 한도가 작아서 하루 18회만 씁니다 (장전 회의 몫 5회는 항상 남겨 둠, 같은 종목·같은 뉴스는 판정 재사용). 사용량은 `data/llm_usage.json`, 한도가 바닥나면 데이터 기반으로 동작합니다. 구글 결제를 켰다면 `.env` 에 `LLM_DAILY_BUDGET=200` 처럼 늘리세요.
+
 > 💡 **PC를 계속 켜 두기 어렵다면** 서버에서 24시간 돌리세요 → 무료: [README_ORACLE.md](README_ORACLE.md) (오라클 클라우드 Always Free) / 유료: [README_SERVER.md](README_SERVER.md) (AWS Lightsail 서울, 월 5달러부터)
 
 ## 4. 가장 쉬운 실행: 더블클릭

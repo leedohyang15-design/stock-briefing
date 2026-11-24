@@ -357,8 +357,16 @@ class DayTrader:
         except Exception as e:  # noqa: BLE001
             return AgentResult(12, "실시간 뉴스·공시", "reject", f"뉴스·공시 조회 실패 → 보수적으로 거부 ({e})")
         rows = intraday.recent_only(rows, self.now(), self.s.news.get("lookback_hours", 24))
-        return intraday.news_check(self.llm, ip.name, rows, [], self.s.news.get("reject_keywords", []),
-                                   self.s.news.get("llm_required", True) and self.broker.mode != "paper")
+        # 같은 종목·같은 뉴스면 앞선 판정 재사용 (신호가 여러 번 나도 AI 는 새 뉴스가 있을 때만 부름 → 무료 할당량 절약)
+        cache = self.__dict__.setdefault("_news_cache", {})
+        key = (self.today(), ip.code, tuple(sorted(r.get("title", "") for r in rows)))
+        if key in cache:
+            r = cache[key]
+            return AgentResult(r.no, r.agent, r.decision, r.reason + " (앞선 판정 재사용)", r.data)
+        r = intraday.news_check(self.llm, ip.name, rows, [], self.s.news.get("reject_keywords", []),
+                                self.s.news.get("llm_required", True) and self.broker.mode != "paper")
+        cache[key] = r
+        return r
 
     def handle_pending(self, code: str) -> None:
         cs = self.codes[code]

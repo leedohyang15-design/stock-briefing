@@ -178,20 +178,56 @@ def test_llm_down_gives_data_debate_and_reasons(monkeypatch):
     assert intraday.news_check(dead, "샘플", news, [], [], True).decision == "reject"  # 실계좌: 보수적
 
 
-def test_llm_error_reason_and_quota_cooldown(monkeypatch):
+def _llm(monkeypatch, tmp_path, budget=18):
     from src.trader import llm as llm_mod
     monkeypatch.setenv("GEMINI_API_KEY", "x")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "")
-    m = llm_mod.LLM()
+    return llm_mod.LLM(usage_path=tmp_path / "u.json", budget=budget)
+
+
+def test_llm_quota_day_skip_and_minute_cooldown(monkeypatch, tmp_path):
+    m = _llm(monkeypatch, tmp_path)
     tried = []
     def boom(p, model, *a):
         tried.append(model)
-        raise RuntimeError("429 RESOURCE_EXHAUSTED quota")
+        raise RuntimeError("429 RESOURCE_EXHAUSTED quota GenerateRequestsPerDay")
     m._call = boom
     assert m.json("s", "p") is None and "할당량" in m.status()
     assert len(tried) == len(m.gemini_models)            # 백업 모델까지 시도
     m.json("s", "p")
-    assert len(tried) == len(m.gemini_models)            # 할당량 초과 모델은 잠시 건너뜀
+    assert len(tried) == len(m.gemini_models)            # 하루 할당량 모델은 오늘 다시 안 부름
+    m2 = _llm(monkeypatch, tmp_path / "b")
+    m2._call = lambda *a: (_ for _ in ()).throw(RuntimeError("429 quota GenerateRequestsPerMinute"))
+    m2.json("s", "p")
+    assert not m2._dead_day and m2._cooldown                # 분당 한도는 잠깐만 쉼
+    m2._cooldown.clear()
+    m2._call = lambda *a: '{"ok": true}'
+    assert m2.json("s", "p") == {"ok": True} and m2.status().startswith("LLM 정상")
+
+
+def test_llm_daily_budget_reserves_premarket(monkeypatch, tmp_path):
+    m = _llm(monkeypatch, tmp_path, budget=8)
     m._call = lambda *a: '{"ok": true}'
-    m._cooldown.clear()
-    assert m.json("s", "p") == {"ok": True} and m.status() == "LLM 정상"
+    got = [m.json("s", "p") for _ in range(5)]
+    assert got == [{"ok": True}] * 3 + [None, None]        # normal 은 장전 몫 5회를 남기고 멈춤
+    assert "예산" in m.why_none()
+    assert all(m.json("s", "p", priority="high") for _ in range(5))   # 장전 회의는 남은 예산 사용
+    assert m.json("s", "p", priority="high") is None
+    m_again = _llm(monkeypatch, tmp_path, budget=8)       # 재시작해도 오늘 사용량 유지
+    assert m_again.used_today() == 8 and "8/8" in m_again.selftest()
+
+
+def test_news_verdict_reused_for_same_headlines(tmp_path):
+    from src.trader.run_day import DayTrader
+    from .test_day_flow import _trader
+    t, _, kis = _trader(tmp_path, lambda h: 10000)
+    del t._news                                               # 실제 _news 사용
+    news = [{"title": "실적 개선 기대", "date": ""}]
+    kis.news_titles = lambda code, limit=20: list(news)
+    t.llm = FakeLLM([{"verdict": "pass", "reason": "악재 없음"}, {"verdict": "reject", "reason": "새 악재"}])
+    ip = _ip()
+    assert DayTrader._news(t, ip).decision == "pass" and t.llm.calls == 1
+    again = DayTrader._news(t, ip)
+    assert again.decision == "pass" and "재사용" in again.reason and t.llm.calls == 1   # 같은 뉴스 → AI 안 부름
+    news.append({"title": "대규모 수주", "date": ""})
+    assert DayTrader._news(t, ip).decision == "reject" and t.llm.calls == 2           # 새 뉴스 → 다시 판정
