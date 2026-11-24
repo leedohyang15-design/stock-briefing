@@ -1,0 +1,9 @@
+[Unit]
+Description=평일 07:55 트레이더 시작
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 07:55:00 Asia/Seoul
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,9 @@
+[Unit]
+Description=토요일 10:00 주간 복기
+
+[Timer]
+OnCalendar=Sat *-*-* 10:00:00 Asia/Seoul
+Persistent=true
+
+[Install]
+WantedBy=timers.target

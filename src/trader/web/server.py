@@ -7,7 +7,10 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import hmac
 import json
+import os
 import threading
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -79,10 +82,23 @@ def build_week(j: Journal) -> Dict[str, Any]:
     }
 
 
-def make_handler(j: Journal):
+def make_handler(j: Journal, password: Optional[str] = None):
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *a):  # 콘솔 조용히
             pass
+
+        def _authorized(self) -> bool:
+            """DASHBOARD_PASSWORD 가 있으면 HTTP Basic 인증 (아이디는 아무거나, 비밀번호만 확인)."""
+            if not password:
+                return True
+            h = self.headers.get("Authorization", "")
+            if not h.startswith("Basic "):
+                return False
+            try:
+                _, _, pw = base64.b64decode(h[6:]).decode("utf-8").partition(":")
+            except Exception:  # noqa: BLE001
+                return False
+            return hmac.compare_digest(pw.encode("utf-8"), password.encode("utf-8"))
 
         def _send(self, code: int, body: bytes, ctype: str) -> None:
             self.send_response(code)
@@ -96,6 +112,13 @@ def make_handler(j: Journal):
 
         def do_GET(self):  # noqa: N802
             u = urlparse(self.path)
+            if u.path != "/_stcore/health" and not self._authorized():
+                self.send_response(401)
+                self.send_header("WWW-Authenticate", 'Basic realm="AI Trader", charset="UTF-8"')
+                self.send_header("Content-Type", "text/plain; charset=utf-8")
+                self.end_headers()
+                self.wfile.write("비밀번호가 필요합니다 (.env 의 DASHBOARD_PASSWORD)".encode("utf-8"))
+                return
             try:
                 if u.path in ("/", "/index.html"):
                     self._send(200, (HERE / "index.html").read_bytes(), "text/html; charset=utf-8")
@@ -111,6 +134,15 @@ def make_handler(j: Journal):
                     self._json([b.__dict__ for b in j.bars(code, date)])
                 elif u.path == "/api/week":
                     self._json(build_week(j))
+                elif u.path == "/download/trader.db":
+                    with j.lock:
+                        data = j.conn.serialize()   # 쓰는 중이어도 일관된 스냅샷
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/octet-stream")
+                    self.send_header("Content-Disposition", f'attachment; filename="trader_{now_kst():%Y%m%d}.db"')
+                    self.send_header("Content-Length", str(len(data)))
+                    self.end_headers()
+                    self.wfile.write(data)
                 elif u.path == "/_stcore/health":
                     self._send(200, b"ok", "text/plain")
                 else:
@@ -121,9 +153,15 @@ def make_handler(j: Journal):
     return Handler
 
 
-def serve(journal: Optional[Journal] = None, port: int = 8501, lan: bool = False, block: bool = True):
+def serve(journal: Optional[Journal] = None, port: int = 8501, lan: bool = False, block: bool = True,
+          host: Optional[str] = None, password: Optional[str] = None):
     j = journal or Journal()
-    httpd = ThreadingHTTPServer(("0.0.0.0" if lan else "127.0.0.1", port), make_handler(j))
+    if password is None:
+        password = os.getenv("DASHBOARD_PASSWORD", "").strip() or None
+    host = host or ("0.0.0.0" if lan else "127.0.0.1")
+    if host not in ("127.0.0.1", "localhost") and not password:
+        print("⚠️ 외부 접속을 열었는데 DASHBOARD_PASSWORD 가 없습니다. 누구나 대시보드를 볼 수 있습니다.")
+    httpd = ThreadingHTTPServer((host, port), make_handler(j, password))
     if block:
         httpd.serve_forever()
     else:
@@ -136,6 +174,7 @@ def main() -> None:
     ap.add_argument("--demo", action="store_true")
     ap.add_argument("--lan", action="store_true", help="같은 와이파이 기기에서 접속 허용")
     ap.add_argument("--port", type=int, default=8501)
+    ap.add_argument("--host", default=None, help="서버에서는 0.0.0.0 (DASHBOARD_PASSWORD 로 비밀번호 보호)")
     ap.add_argument("--no-browser", action="store_true")
     args = ap.parse_args()
     if args.demo:
@@ -148,7 +187,7 @@ def main() -> None:
     if not args.no_browser:
         threading.Timer(1.0, lambda: webbrowser.open(url)).start()
     try:
-        serve(j, args.port, args.lan)
+        serve(j, args.port, args.lan, host=args.host)
     except KeyboardInterrupt:
         pass
 

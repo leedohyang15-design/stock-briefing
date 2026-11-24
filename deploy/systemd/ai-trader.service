@@ -1,0 +1,14 @@
+[Unit]
+Description=AI 단타 트레이더 (평일 모의투자)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__USER__
+WorkingDirectory=__DIR__
+Environment=PYTHONUNBUFFERED=1
+ExecStart=__DIR__/.venv/bin/python -m src.trader.launch --yes --no-dashboard
+# 장 마감(15:40 복기) 후 스스로 종료. 혹시 걸려도 10시간 뒤 강제 종료
+TimeoutStartSec=0
+RuntimeMaxSec=10h

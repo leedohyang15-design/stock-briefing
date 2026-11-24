@@ -1,0 +1,12 @@
+[Unit]
+Description=AI 트레이더 주간 복기 (변경안 텔레그램 전송 후 /apply 대기)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__USER__
+WorkingDirectory=__DIR__
+Environment=PYTHONUNBUFFERED=1
+ExecStart=__DIR__/.venv/bin/python -m src.trader.run_weekly
+RuntimeMaxSec=40h
