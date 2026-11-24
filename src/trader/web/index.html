@@ -371,7 +371,7 @@ function renderMeeting(){
 }
 function renderEvents(){put('events',(S.events||[]).length?S.events.map(e=>`<div class="ev"><span class="t">${e.ts.slice(11,19)}</span><span>${esc(e.line)}</span></div>`).join(''):'<div class="empty">아직 기록이 없어요.</div>')}
 function renderAll(force){renderBoard();renderStocks();renderAgents();renderChart(force);renderFlow();renderFeed();renderMeeting();renderEvents()}
-async function tick(){try{const prev=sel;S=await (await fetch('/api/state?m='+M)).json();renderAll(prev!==sel||!lastBarsKey)}catch(e){$('bNow').textContent='대시보드 서버와 연결이 끊겼어요. 트레이더 창이 켜져 있는지 확인해 주세요.'}}
+async function tick(){try{const prev=sel;S=await (await fetch('/api/state?m='+M)).json();renderAll(prev!==sel||!lastBarsKey);window.__ready=true}catch(e){$('bNow').textContent='대시보드 서버와 연결이 끊겼어요. 트레이더 창이 켜져 있는지 확인해 주세요.'}}
 async function loadWeek(){
   const W=await (await fetch('/api/week?m='+M)).json();const r=W.report||{},m=r.metrics||{};const days=W.days||[];const mx=Math.max(1,...days.map(d=>Math.abs(d.ret_pct||0)));const sc=r.scorecard||[];
   $('week').innerHTML=`<section class="px"><h2>이번 주 성적</h2><div class="row" style="flex-wrap:wrap;gap:24px">

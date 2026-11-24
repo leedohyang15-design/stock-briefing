@@ -49,22 +49,48 @@ def start_dashboard(port: int = 8501):
     return httpd, f"http://localhost:{port}"
 
 
-def open_app_window(url: str) -> bool:
-    """브라우저 대신 전용 프로그램 창으로 연다 (윈도우 기본 Edge WebView2 사용). 창을 닫을 때까지 기다린다.
-    pywebview 가 없거나 실패하면 False (그때는 브라우저로 연다)."""
+def open_app_window(url: str, ready_timeout: float = 8.0) -> bool:
+    """브라우저 대신 전용 프로그램 창으로 연다. 창을 닫을 때까지 기다리고 True.
+
+    - 엔진은 Edge WebView2 로 고정한다 (옛 IE 엔진으로 열리면 화면이 하얗게 나오므로 절대 쓰지 않음).
+    - 창을 연 뒤 ready_timeout 초 안에 화면이 실제로 그려졌는지(window.__ready) 확인하고, 아니면 창을 닫는다.
+    - 위 어느 단계든 실패하면 False → 호출한 쪽에서 브라우저로 연다.
+    """
     try:
         import webview
-    except Exception:  # noqa: BLE001
-        return False
-    try:
-        webview.create_window("AI 단타 트레이딩 사무실", url, width=1440, height=920, min_size=(900, 600),
-                              confirm_close=True, background_color="#1a1c2c")
-        webview.start(localization={"global.quitConfirmation": "창을 닫으면 오늘 매매(모의투자)가 멈춥니다. 닫을까요?",
-                                    "global.ok": "닫기", "global.cancel": "계속 실행"})
-        return True
     except Exception as e:  # noqa: BLE001
-        print(f"[창] 전용 창을 열지 못해 브라우저로 엽니다: {e}")
+        print(f"[화면] 전용 창 부품(pywebview)을 쓸 수 없어요: {e}")
         return False
+    state = {"ready": False}
+
+    def check(win):
+        import time
+        t0 = time.monotonic()
+        while time.monotonic() - t0 < ready_timeout:
+            try:
+                if win.evaluate_js("window.__ready === true"):
+                    state["ready"] = True
+                    print("[화면] 전용 창(Edge)으로 열었습니다.")
+                    return
+            except Exception:  # noqa: BLE001
+                pass
+            time.sleep(0.5)
+        print("[화면] 전용 창에 화면이 그려지지 않아 닫고 브라우저로 엽니다.")
+        try:
+            win.destroy()
+        except Exception:  # noqa: BLE001
+            pass
+
+    try:
+        win = webview.create_window("AI 단타 트레이딩 사무실", url, width=1440, height=920, min_size=(900, 600),
+                                    confirm_close=True, background_color="#1a1c2c")
+        webview.start(check, (win,), gui="edgechromium",
+                      localization={"global.quitConfirmation": "창을 닫으면 오늘 매매(모의투자)가 멈춥니다. 닫을까요?",
+                                    "global.ok": "닫기", "global.cancel": "계속 실행"})
+    except Exception as e:  # noqa: BLE001
+        print(f"[화면] 전용 창(Edge WebView2)을 열 수 없어요: {e}")
+        return False
+    return state["ready"]
 
 
 def run_with_restart(fn, max_restarts: int = 3, wait_sec: float = 10.0, sleep=None) -> int:
@@ -150,11 +176,13 @@ def main(argv=None) -> int:
                 print("창을 닫아서 트레이더를 멈췄습니다.")
                 return 0
             webbrowser.open(url)              # 전용 창을 못 열면 브라우저로
+            print(f"[화면] 브라우저로 열었습니다 → {url}  (안 열리면 이 주소를 크롬·엣지 주소창에 붙여넣으세요)")
             while th.is_alive():
                 th.join(1.0)
         else:
             if url:
                 webbrowser.open(url)
+                print(f"[화면] 브라우저로 열었습니다 → {url}")
             trader()
     except KeyboardInterrupt:
         print("\n사용자가 중지했습니다.")

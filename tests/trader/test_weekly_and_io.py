@@ -287,3 +287,40 @@ def test_kis_buyable_cash(monkeypatch, tmp_path):
     assert c.buyable_cash() == 123456
     assert sess.seen[1][2]["tr_id"] == "TTTC8908R"
     assert c.buyable_cash() is None
+
+
+def _fake_webview(monkeypatch, ready=True, start_error=None):
+    import sys
+    import types
+    calls = {}
+
+    class Win:
+        destroyed = False
+
+        def evaluate_js(self, code):
+            return ready
+
+        def destroy(self):
+            Win.destroyed = True
+
+    mod = types.ModuleType("webview")
+    mod.create_window = lambda *a, **k: Win()
+
+    def start(func=None, args=(), **k):
+        calls.update(k)
+        if start_error:
+            raise start_error
+        func(*args)
+    mod.start = start
+    monkeypatch.setitem(sys.modules, "webview", mod)
+    return calls, Win
+
+
+def test_app_window_uses_edge_and_checks_render(monkeypatch):
+    from src.trader.launch import open_app_window
+    calls, Win = _fake_webview(monkeypatch, ready=True)
+    assert open_app_window("http://x") is True and calls["gui"] == "edgechromium"
+    calls, Win = _fake_webview(monkeypatch, ready=False)
+    assert open_app_window("http://x", ready_timeout=0.6) is False and Win.destroyed   # 하얀 화면 → 닫고 브라우저
+    _fake_webview(monkeypatch, start_error=RuntimeError("WebView2 없음"))
+    assert open_app_window("http://x") is False                                         # Edge 엔진 없음 → 브라우저
