@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# AI 단타 트레이더 서버 설치 (Ubuntu 22.04/24.04, AWS Lightsail 서울 기준)
+# AI 단타 트레이더 서버 설치 (Ubuntu 22.04/24.04 — 오라클 클라우드 무료 / AWS Lightsail)
 #   curl -fsSL https://raw.githubusercontent.com/leedohyang15-design/stock-briefing/claude/tender-hawking-ibcnvo/deploy/setup_server.sh | bash
 # 다시 실행해도 안전합니다 (이미 있는 .env·비밀번호는 유지).
 # 옵션: --no-systemd (서비스 등록 생략, 테스트용)
@@ -19,6 +19,30 @@ fi
 if ! command -v git >/dev/null || ! python3 -c "import venv, ensurepip" 2>/dev/null; then
   $SUDO apt-get update -qq
   $SUDO apt-get install -y -qq git python3-venv python3-pip >/dev/null
+fi
+
+# 무료 서버(오라클 AMD 1GB 등)는 메모리가 작아 pip 설치 중 멈출 수 있음 → 2GB 스왑
+if [ "$NO_SYSTEMD" -eq 0 ]; then
+  MEM_MB=$(awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo)
+  if [ "$MEM_MB" -lt 2000 ] && [ -z "$(swapon --show 2>/dev/null)" ]; then
+    echo "   메모리 ${MEM_MB}MB → 스왑 2GB 만드는 중"
+    if $SUDO fallocate -l 2G /swapfile 2>/dev/null || $SUDO dd if=/dev/zero of=/swapfile bs=1M count=2048 status=none; then
+      $SUDO chmod 600 /swapfile && $SUDO mkswap /swapfile >/dev/null && $SUDO swapon /swapfile \
+        && (grep -q '^/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' | $SUDO tee -a /etc/fstab >/dev/null) \
+        || echo "   (경고) 스왑을 켜지 못했습니다. 설치가 느리거나 멈추면 다시 실행하세요."
+    fi
+  fi
+  # 오라클 Ubuntu 이미지는 서버 안 방화벽(iptables)이 기본으로 막음 → 대시보드 포트 8501 허용
+  if command -v iptables >/dev/null && $SUDO iptables -S INPUT 2>/dev/null | grep -q -- '-j REJECT'; then
+    if ! $SUDO iptables -C INPUT -p tcp --dport 8501 -j ACCEPT 2>/dev/null; then
+      POS=$($SUDO iptables -L INPUT --line-numbers -n | awk '/REJECT/ {print $1; exit}')
+      $SUDO iptables -I INPUT "${POS:-1}" -m state --state NEW -p tcp --dport 8501 -j ACCEPT
+      echo "   서버 방화벽에서 8501 포트를 열었습니다."
+    fi
+    if command -v netfilter-persistent >/dev/null; then
+      $SUDO netfilter-persistent save >/dev/null 2>&1 || true
+    fi
+  fi
 fi
 
 echo "== 2/6 코드 받기 ($BRANCH) =="
@@ -64,7 +88,7 @@ else
 fi
 
 echo "== 6/6 완료 =="
-IP="$(curl -s --max-time 3 https://checkip.amazonaws.com || echo '<고정IP>')"
+IP="$(curl -s --max-time 3 https://checkip.amazonaws.com || curl -s --max-time 3 https://ifconfig.me || echo '<공인IP>')"
 PW_NOW="$(grep '^DASHBOARD_PASSWORD=' .env | cut -d= -f2-)"
 cat <<MSG
 
