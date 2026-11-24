@@ -72,6 +72,7 @@ def build_state(j: Journal, now=None) -> Dict[str, Any]:
         "results": results,
         "events": events,
         "trades": j.query("SELECT * FROM trades WHERE date=? ORDER BY id", (today,)),
+        "shadows": j.query("SELECT * FROM shadow WHERE date=? ORDER BY id", (today,)),
         "names": NAMES,
     }
 

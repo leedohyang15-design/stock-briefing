@@ -324,6 +324,7 @@ function renderFlow(){
     const tm=res[18]&&res[18].data||{};
     fin=`<div style="background:var(--ink2);border:3px solid var(--ink);padding:10px"><div class="small muted">최종 판단 · ${sig.ts.slice(11,16)} 신호</div><div style="font-size:18px;font-weight:700;color:${lab[1]}">${lab[0]}</div>
      <div class="small">${esc(sig.reason||'')}</div><div class="small muted">신호가 ${won(sig.price)} · 손절 ${won(sig.stop)} · ${sig.qty||0}주</div>
+     ${(()=>{const g=(S.shadows||[]).find(x=>x.signal_id===sig.id);if(!g) return '';return g.exit_ts?`<div class="small" style="margin-top:6px">👻 그림자 거래(샀다면): <b class="${cls(g.ret_pct)}">${pct(g.ret_pct)}</b> · ${esc(g.exit_reason)} → ${g.ret_pct<0?'거부가 손실을 막았어요':'거부 때문에 수익을 놓쳤어요'}</div>`:`<div class="small" style="margin-top:6px">👻 그림자 거래 추적 중: ${won(g.entry_price)}에 샀다면… (장 마감에 결과)</div>`})()}
      ${tm.p_stop!=null?`<div class="small" style="margin-top:6px">18 타임머신: 남은 장 10,000번 돌려본 결과 (기대 <b class="${cls(tm.ev_pct)}">${pct(tm.ev_pct)}</b>)</div>
      <div class="tm"><div style="width:${tm.p_eod_profit}%;background:#ff6b6b">${tm.p_eod_profit>14?'마감수익 '+tm.p_eod_profit.toFixed(0)+'%':''}</div><div style="width:${tm.p_stop}%;background:#41a6f6">${tm.p_stop>14?'손절 '+tm.p_stop.toFixed(0)+'%':''}</div><div style="flex:1;background:#566c86;color:#fff">${tm.p_eod_loss>14?'마감손실 '+tm.p_eod_loss.toFixed(0)+'%':''}</div></div>`:''}</div>`}
   else if(ip) fin=`<div class="small muted">아직 신호 없음 — 현재가가 ${won(ip.or_high)}원을 넘으면 검사가 시작돼요.</div>`;

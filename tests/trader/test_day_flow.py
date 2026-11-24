@@ -108,12 +108,14 @@ def test_late_start_weak_market_blocks_quietly(tmp_path):
     texts = [e["text"] for e in j.query("SELECT text FROM events")]
     assert any("뚜렷한 약세" in x for x in texts)                       # -2.3% < -1% 기준
     assert sum("신규 매수 중단 중" in x for x in texts) == 1               # 알림은 한 번만
-    assert j.query("SELECT * FROM signals") == []                       # 종목별 신호 남발 없음
+    sig = j.query("SELECT * FROM signals")                              # 매분 남발 없이, 그림자 거래용 1건만
+    assert len(sig) == 1 and sig[0]["status"] == "rejected"
+    assert len(j.query("SELECT * FROM shadow")) == 1
     kis.index_change = lambda m="KOSPI": (2500.0, -0.4)                # -1% 위로 회복하면 재개
     t._last_index = 0
     t.tick()
     assert t._regime_blocked is False
-    assert len(j.query("SELECT * FROM signals")) == 1                   # 회복되면 다시 검사
+    assert len(j.query("SELECT * FROM signals")) == 2                   # 회복되면 실제 검사
 
 
 def test_paper_fill_slippage_and_gap_stop():
@@ -181,3 +183,28 @@ def test_launcher_restarts_at_most_three_times():
     import pytest
     with pytest.raises(RuntimeError):
         run_with_restart(always, max_restarts=3, sleep=lambda s: None)
+
+
+def test_rejected_signal_tracked_as_shadow_trade(tmp_path):
+    class RejectTG(NullTelegram):
+        def approval_status(self, sid, timeout_sec):
+            return "rejected"
+    path = lambda h: 10100 if h < "0935" else (10300 if h < "1000" else 10500)
+    t, j, _ = _trader(tmp_path, path, RejectTG())
+    t.run(1_000_000)
+    assert j.query("SELECT * FROM trades") == []                       # 실제(모의) 매수는 없음
+    sh = j.query("SELECT * FROM shadow")
+    assert len(sh) == 1 and sh[0]["reason"] == "승인 안 됨" and sh[0]["exit_reason"] == "장마감 청산"
+    assert sh[0]["entry_price"] == 10310 and sh[0]["exit_price"] == 10490 and sh[0]["ret_pct"] > 0
+    assert any("그림자 거래 1건" in e["text"] or "그림자" in e["kind"] for e in j.query("SELECT kind, text FROM events"))
+
+
+def test_regime_block_still_records_shadow(tmp_path):
+    path = lambda h: 10100 if h < "0935" else (10300 if h < "0950" else 10100)
+    t, j, kis = _trader(tmp_path, path)
+    kis.index_change = lambda m="KOSPI": (2500.0, -2.5)
+    t.run(1_000_000)
+    sh = j.query("SELECT * FROM shadow")
+    assert len(sh) == 1 and sh[0]["reason_no"] == 13 and sh[0]["exit_reason"] == "손절" and sh[0]["ret_pct"] < 0
+    sig = j.query("SELECT status FROM signals")
+    assert len(sig) == 1 and sig[0]["status"] == "rejected"

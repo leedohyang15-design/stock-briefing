@@ -29,6 +29,9 @@ CREATE TABLE IF NOT EXISTS snapshots (key TEXT PRIMARY KEY, ts TEXT, data TEXT);
 CREATE TABLE IF NOT EXISTS daily (date TEXT PRIMARY KEY, start_equity REAL, net_pnl REAL, ret_pct REAL,
     trades INTEGER, wins INTEGER, losses INTEGER, mode TEXT);
 CREATE TABLE IF NOT EXISTS config_versions (version INTEGER PRIMARY KEY, ts TEXT, yaml TEXT, note TEXT, status TEXT);
+CREATE TABLE IF NOT EXISTS shadow (id INTEGER PRIMARY KEY, date TEXT, code TEXT, name TEXT, signal_id INTEGER,
+    reason_no INTEGER, reason TEXT, entry_ts TEXT, entry_price REAL, stop REAL, exit_ts TEXT, exit_price REAL,
+    exit_reason TEXT, ret_pct REAL);
 CREATE TABLE IF NOT EXISTS proposals (id INTEGER PRIMARY KEY, ts TEXT, changes TEXT, report TEXT, status TEXT);
 """
 
@@ -109,6 +112,20 @@ class Journal:
 
     def open_trades(self) -> List[Dict[str, Any]]:
         return self.query("SELECT * FROM trades WHERE exit_ts IS NULL")
+
+    # ── 그림자 거래 ──
+    def open_shadow(self, code, name, signal_id, reason_no, reason, entry_price, stop) -> int:
+        ts, d = self._ts()
+        return self._exec("INSERT INTO shadow (date,code,name,signal_id,reason_no,reason,entry_ts,entry_price,stop) "
+                          "VALUES (?,?,?,?,?,?,?,?,?)", (d, code, name, signal_id, reason_no, reason, ts, entry_price, stop))
+
+    def close_shadow(self, sid: int, exit_price: float, reason: str, ret_pct: float) -> None:
+        ts, _ = self._ts()
+        self._exec("UPDATE shadow SET exit_ts=?, exit_price=?, exit_reason=?, ret_pct=? WHERE id=?",
+                   (ts, exit_price, reason, ret_pct, sid))
+
+    def open_shadows(self) -> List[Dict[str, Any]]:
+        return self.query("SELECT * FROM shadow WHERE exit_ts IS NULL")
 
     def snapshot(self, key: str, data: Any) -> None:
         ts, _ = self._ts()

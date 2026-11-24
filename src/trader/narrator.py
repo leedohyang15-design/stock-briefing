@@ -137,5 +137,6 @@ def agent_line(no: int, decision: str, reason: str) -> str:
 
 
 def event_text(kind: str, text: str) -> str:
-    icon = {"체결": "✅", "매수": "🛒", "매도": "💰", "거부": "🚫", "신호": "📈", "중단": "⏸", "오류": "⚠️"}.get(kind, "ℹ️")
+    icon = {"체결": "✅", "매수": "🛒", "매도": "💰", "거부": "🚫", "신호": "📈", "중단": "⏸", "오류": "⚠️",
+            "그림자": ""}.get(kind, "ℹ️")
     return f"{icon} {text}"

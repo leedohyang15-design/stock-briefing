@@ -36,6 +36,11 @@ def daily_review(journal: Journal, llm, date: str, start_equity: float, mode: st
              "신호: " + ", ".join(f"{r['status']} {r['n']}" for r in sigs) if sigs else "신호 없음"]
     if rej:
         lines.append("거부 많이 한 에이전트: " + ", ".join(f"{r['agent']} {r['n']}" for r in rej[:4]))
+    sh = journal.query("SELECT * FROM shadow WHERE date=? AND exit_ts IS NOT NULL", (date,))
+    if sh:
+        avg = sum(r["ret_pct"] for r in sh) / len(sh)
+        saved = sum(1 for r in sh if r["ret_pct"] < 0)
+        lines.append(f"👻 그림자 거래 {len(sh)}건 (거부된 신호를 샀다면): 평균 {avg:+.2f}% · 거부가 옳았던 건 {saved}/{len(sh)}")
     for t in trades:
         lines.append(f" - {t['name']} {t['qty']}주 {t['entry_price']:,.0f}→{t['exit_price']:,.0f} "
                      f"{t['exit_reason']} {t['net_pnl']:+,.0f}원")
@@ -90,7 +95,8 @@ def scorecard(journal: Journal, since: str, s: Settings) -> List[Dict[str, Any]]
         if not blk:
             continue
         key = f"{blk[0]['no']} {blk[0]['agent']}"
-        o = _outcome(journal, sig, flatten, cpct)
+        sh = journal.query("SELECT ret_pct FROM shadow WHERE signal_id=? AND exit_ts IS NOT NULL", (sig["id"],))
+        o = sh[0]["ret_pct"] if sh else _outcome(journal, sig, flatten, cpct)   # 그림자 거래 결과 우선
         st_ = stats.setdefault(key, {"name": key, "rejects": 0, "scored": 0, "right": 0, "avoided_pct": 0.0})
         st_["rejects"] += 1
         if o is not None:

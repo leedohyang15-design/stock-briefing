@@ -58,6 +58,10 @@ class DayTrader:
         self.inputs = premarket_inputs
         journal.now_fn = now_fn
         self.ex = Executor(broker, journal, settings.costs, notify=tg.send)
+        from .shadow import ShadowBook
+        self.cost_pct = cost_pct(settings.costs.get("fee_pct", 0.015), settings.costs.get("sell_tax_pct", 0.2))
+        self.shadow = ShadowBook(journal, settings.execution.get("slippage_ticks", 1), self.cost_pct,
+                                 lambda code, text: self.j.event("그림자", text, code))
         self.state: Optional[DayState] = None
         self.report: Optional[PremarketReport] = None
         self.inplay: Dict[str, intraday.InPlay] = {}
@@ -304,6 +308,7 @@ class DayTrader:
             self.j.update_signal(sid, "rejected", cs.note)
             self.j.event("거부", f"{ip.name} 신호 → {blocked.no}번 {blocked.agent} 거부 ({blocked.reason})"
                          + ("" if permanent else " · 1분 후 재검사"), ip.code)
+            self.shadow.open(ip.code, ip.name, sid, blocked.no, blocked.reason, q.price, stop, self.today())
             return
         rk = next(r for r in results if r.no == 15)
         qty, lim = rk.data["qty"], rk.data["limit_price"]
@@ -318,6 +323,21 @@ class DayTrader:
                f"{self.s.approval.get('timeout_sec', 180) // 60}분 안에 응답이 없으면 취소됩니다.")
         self.tg.request_approval(sid, msg)
         self.j.event("매수", f"{ip.name} 필터 통과 → 텔레그램 승인 요청 ({qty}주 @{lim:,})", ip.code)
+
+    def shadow_regime(self, ip, q) -> None:
+        """시장 분위기 때문에 쉬는 동안 돌파가 나오면, 그림자 거래로만 기록 (종목당 하루 1번)."""
+        cfg = self.s.strategy
+        if self.shadow.has(ip.code, self.today()):
+            return
+        if intraday.orb_check(q.price, ip, cfg.get("require_bullish_or", True)).decision != "pass":
+            return
+        stop = st.stop_for(add_ticks(q.price, 1), ip.atr, cfg, self.cost_pct)
+        sig = Signal(ip.code, ip.name, q.price, ip.rng.high, ip.rng.low, ip.atr, stop)
+        sid = self.j.new_signal(sig, {"relvol": ip.relvol, "time": self.hhmm(), "regime_blocked": True})
+        r = self.regime or AgentResult(13, "시장 분위기", "reject", "시장 약세")
+        self.j.agent_result(AgentResult(13, "시장 분위기", "reject", r.reason, r.data), ip.code, sid)
+        self.j.update_signal(sid, "rejected", f"시장 분위기: {r.reason}")
+        self.shadow.open(ip.code, ip.name, sid, 13, r.reason, q.price, stop, self.today())
 
     def _news(self, ip) -> AgentResult:
         """12번: 한국투자증권 종합 시황/공시에서 종목 뉴스·공시를 받는다. 조회 실패는 '뉴스 없음'이 아니라 거부."""
@@ -340,6 +360,8 @@ class DayTrader:
             self.j.update_signal(cs.sid, "rejected" if status == "rejected" else "expired",
                                  "사용자 거절" if status == "rejected" else "승인 시간 초과")
             self.j.event("거부", f"{ip.name} {'사용자 거절' if status == 'rejected' else '승인 시간 초과'}", code)
+            if q:
+                self.shadow.open(code, ip.name, cs.sid, 0, "승인 안 됨", q.price, cs.pending["stop"], self.today())
             return
         p = cs.pending
         if q and q.price > p["limit"] * 1.01:
@@ -380,6 +402,7 @@ class DayTrader:
             self.state.realized_pnl += self.ex.flatten(prices, "사용자 청산")
             self._flat_requested = False
         self.update_pnl()
+        self.shadow.update(prices)
         for rank, (code, ip) in enumerate(self.inplay.items(), start=1):
             cs, q = self.codes[code], self.quotes.get(code)
             if not q:
@@ -387,8 +410,11 @@ class DayTrader:
             if cs.status == "pending":
                 self.handle_pending(code)
             elif cs.status == "watch" or (cs.status == "cooldown" and self.now().timestamp() >= cs.retry_at):
-                if code in self.ex.positions or self.state.stopped or self._regime_blocked:
-                    continue  # 시장 전체가 막힌 동안은 종목별 신호를 만들지 않는다
+                if code in self.ex.positions or self.state.stopped:
+                    continue
+                if self._regime_blocked:  # 시장 전체가 막힌 동안은 검사 대신 그림자 거래만 기록
+                    self.shadow_regime(ip, q)
+                    continue
                 self.evaluate_signal(ip, q, rank)
         self.snapshot()
 
@@ -484,6 +510,7 @@ class DayTrader:
         self.set_phase("flatten")
         self.refresh_quotes()
         self.state.realized_pnl += self.ex.flatten(self.prices(), "장마감 청산")
+        self.shadow.flatten(self.prices())
         self.update_pnl()
         self.snapshot()
         self.wait_until(_hhmm(sch.get("review_time", "15:40")))
