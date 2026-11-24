@@ -67,3 +67,39 @@ def test_state_api(tmp_path):
         assert "report" in json.loads(urllib.request.urlopen(f"http://127.0.0.1:{port}/api/week").read())
     finally:
         httpd.shutdown()
+
+
+def test_password_protection_and_db_download(tmp_path):
+    import base64
+    import sqlite3
+    import urllib.error
+    j = Journal(tmp_path / "t.db")
+    j.event("정보", "hello")
+    httpd = serve(j, port=0, block=False, host="127.0.0.1", password="s3cret")
+    port = httpd.server_address[1]
+
+    def get(path, pw=None):
+        req = urllib.request.Request(f"http://127.0.0.1:{port}{path}")
+        if pw is not None:
+            req.add_header("Authorization", "Basic " + base64.b64encode(f"me:{pw}".encode()).decode())
+        try:
+            r = urllib.request.urlopen(req)
+            return r.status, r.read()
+        except urllib.error.HTTPError as e:
+            return e.code, b""
+    try:
+        assert get("/")[0] == 401 and get("/", "wrong")[0] == 401 and get("/download/trader.db")[0] == 401
+        assert get("/", "s3cret")[0] == 200
+        assert get("/_stcore/health")[0] == 200                      # 상태 확인은 인증 없이
+        code, body = get("/download/trader.db", "s3cret")
+        assert code == 200
+        p = tmp_path / "dl.db"
+        p.write_bytes(body)
+        assert sqlite3.connect(p).execute("SELECT text FROM events").fetchone()[0] == "hello"
+    finally:
+        httpd.shutdown()
+    open_srv = serve(j, port=0, block=False, password="")              # 비밀번호 없으면 기존처럼 열림
+    try:
+        assert urllib.request.urlopen(f"http://127.0.0.1:{open_srv.server_address[1]}/").status == 200
+    finally:
+        open_srv.shutdown()

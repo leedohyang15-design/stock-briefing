@@ -63,6 +63,8 @@ TELEGRAM_CHAT_ID=...
 GEMINI_API_KEY=...
 ```
 
+> 💡 **PC를 계속 켜 두기 어렵다면** 서버에서 24시간 돌리세요 → [README_SERVER.md](README_SERVER.md) (AWS Lightsail 서울, 월 약 5달러)
+
 ## 4. 가장 쉬운 실행: 더블클릭
 
 `scripts` 폴더에서 파일을 더블클릭하면 필요한 패키지 확인 → 대시보드(브라우저 자동 열림) → 트레이더가 한 번에 켜집니다.
@@ -170,6 +172,7 @@ src/trader/
   web/            한 화면 대시보드 (보기 전용, 표준 라이브러리 서버 + lightweight-charts)
   narrator.py     상태·에이전트 결과를 쉬운 문장으로
   launch.py       원클릭 실행 (대시보드 + 트레이더)
+deploy/             서버 설치 스크립트·systemd 타이머 (README_SERVER.md)
   agents/premarket.py  1~8 · agents/intraday.py 9~14 · agents/timemachine.py 18 · agents/review.py 17
   risk.py 15 · executor.py 16 · strategy.py 계산식 · backtest.py · journal.py(SQLite) · telegram_bot.py
 config/trader.yaml   모든 설정값

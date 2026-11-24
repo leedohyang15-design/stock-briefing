@@ -183,7 +183,8 @@ def main() -> None:
     else:
         j = Journal()
     url = f"http://localhost:{args.port}"
-    print(f"대시보드: {url}  (끄려면 이 창을 닫거나 Ctrl+C)")
+    where = f"이 서버의 공인 IP:{args.port}" if args.host and args.host not in ("127.0.0.1", "localhost") else url
+    print(f"대시보드: {where}  (끄려면 Ctrl+C)")
     if not args.no_browser:
         threading.Timer(1.0, lambda: webbrowser.open(url)).start()
     try:
