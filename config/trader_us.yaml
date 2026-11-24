@@ -49,6 +49,12 @@ news:
                     investigation, subpoena, "SEC charges", fraud, "going concern", "reverse split", downgrade,
                     recall, lawsuit, "class action", 유상증자, 상장폐지, 거래정지, 파산, 소송, 하향]
 
+# ── 필터 권한 ──
+# advisory 에 있는 에이전트는 반대 의견을 내도 매수를 막지 않는다 (기록만, 주간 복기에서 채점).
+# 11 주문 불균형·18 타임머신은 논문 근거가 약해 모의투자 기간엔 '의견만'. 효과가 증명되면 목록에서 빼서 차단 권한을 준다.
+filters:
+  advisory: [11, 18]
+
 approval:
   mode: telegram
   paper_mode: auto

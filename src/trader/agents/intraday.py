@@ -162,11 +162,12 @@ def vi_check(q: Quote, reference: float, static_pct: float, guard_pct: float) ->
         return AgentResult(14, "VI 감시", "pass", "이 시장은 정적 VI 제도가 없어 생략")
     if q.vi_active:
         return AgentResult(14, "VI 감시", "reject", "VI 발동 중 (단일가 매매) → 진입 금지")
-    room = st.vi_room_pct(q.price, reference, static_pct)
-    upper = st.static_vi_upper(reference, static_pct)
+    ref = st.vi_reference(reference, q.price, static_pct)     # 이미 발동한 VI 를 반영한 추정 기준가
+    room = st.vi_room_pct(q.price, ref, static_pct)
+    upper = st.static_vi_upper(ref, static_pct)
     data = {"room_pct": round(room, 2), "upper": upper}
     if room <= guard_pct:
-        return AgentResult(14, "VI 감시", "reject", f"정적 VI 발동가 {upper:,.0f}까지 {room:+.1f}% (기준 {guard_pct}%) → 진입 금지", data)
+        return AgentResult(14, "VI 감시", "reject", f"정적 VI 발동가(추정) {upper:,.0f}까지 {room:+.1f}% (기준 {guard_pct}%) → 진입 금지", data)
     if q.upper_limit and q.price >= q.upper_limit * 0.97:
         return AgentResult(14, "VI 감시", "reject", "상한가 근접 → 진입 금지", data)
-    return AgentResult(14, "VI 감시", "pass", f"정적 VI 발동가까지 +{room:.1f}%", data)
+    return AgentResult(14, "VI 감시", "pass", f"정적 VI 발동가(추정 {upper:,.0f})까지 +{room:.1f}%", data)

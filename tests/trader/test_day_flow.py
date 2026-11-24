@@ -208,3 +208,15 @@ def test_regime_block_still_records_shadow(tmp_path):
     assert len(sh) == 1 and sh[0]["reason_no"] == 13 and sh[0]["exit_reason"] == "손절" and sh[0]["ret_pct"] < 0
     sig = j.query("SELECT status FROM signals")
     assert len(sig) == 1 and sig[0]["status"] == "rejected"
+
+
+def test_advisory_agents_do_not_block(tmp_path):
+    """11 주문 불균형이 반대해도(매도 주도) 의견만 남기고 매수는 진행."""
+    from src.trader.models import Trade
+    path = lambda h: 10100 if h < "0935" else (10300 if h < "1000" else 10400)
+    t, j, kis = _trader(tmp_path, path)
+    kis.recent_trades = lambda code: [Trade(f"0939{s:02d}", 10300 - s * 10, 100) for s in range(30)]  # 하락 체결
+    t.run(1_000_000)
+    assert len(j.query("SELECT * FROM trades")) == 1
+    r11 = j.query("SELECT decision, reason, data FROM agent_results WHERE no=11")[0]
+    assert r11["decision"] == "info" and "막지는 않음" in r11["reason"] and "would_reject" in r11["data"]

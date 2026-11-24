@@ -97,7 +97,7 @@ def run(journal: Journal, s: Settings, dates: Sequence[str], equity: float = 1_0
             entry = max(add_ticks(rng.high, 1), after[i].open)
             if slip:
                 entry = add_ticks(entry, slip)
-            room = st.vi_room_pct(entry, rng.open, cfg["static_vi_pct"])
+            room = st.vi_room_pct(entry, st.vi_reference(rng.open, entry, cfg["static_vi_pct"]), cfg["static_vi_pct"])
             if room <= cfg["vi_guard_pct"]:
                 continue
             stop = st.stop_for(entry, a, cfg, cpct)

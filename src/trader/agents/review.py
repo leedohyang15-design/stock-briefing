@@ -103,6 +103,18 @@ def scorecard(journal: Journal, since: str, s: Settings) -> List[Dict[str, Any]]
             st_["scored"] += 1
             st_["right"] += 1 if o < 0 else 0
             st_["avoided_pct"] += -o
+    # 의견만 내는(advisory) 에이전트: 반대했는데 실제로 산 거래의 결과
+    adv = journal.query("SELECT ar.no, ar.agent, t.net_pnl, t.entry_price, t.qty FROM agent_results ar "
+                        "JOIN trades t ON t.signal_id = ar.signal_id WHERE ar.date>=? AND ar.data LIKE '%would_reject%' "
+                        "AND t.exit_ts IS NOT NULL", (since,))
+    for a in adv:
+        key = f"{a['no']} {a['agent']} (의견만)"
+        st_ = stats.setdefault(key, {"name": key, "rejects": 0, "scored": 0, "right": 0, "avoided_pct": 0.0})
+        ret = (a["net_pnl"] or 0) / (a["entry_price"] * a["qty"]) * 100 if a["entry_price"] and a["qty"] else 0.0
+        st_["rejects"] += 1
+        st_["scored"] += 1
+        st_["right"] += 1 if ret < 0 else 0
+        st_["avoided_pct"] += -ret
     out = []
     for v in stats.values():
         v["right_rate"] = v["right"] / v["scored"] * 100 if v["scored"] else None

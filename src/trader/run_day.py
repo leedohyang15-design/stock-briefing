@@ -34,7 +34,7 @@ _ETF_WORDS = ("KODEX", "TIGER", "KBSTAR", "ACE ", "SOL ", "HANARO", "ARIRANG", "
               " ETF", "ETF ", "2X", "3X", "Ultra", "ProShares", "Direxion", "iShares", "SPDR", "Leveraged", "Inverse")
 TRANSIENT = {11, 13, 14, 15}      # 시간이 지나면 바뀔 수 있는 거부 → 잠시 후 재검사
 RECHECK_SEC = 60
-MAX_SIGNALS_PER_CODE = 3
+MAX_SIGNALS_PER_CODE = 10      # 일시적 거부(매수세·시장·VI·한도)는 1분 간격으로 최대 10번까지 재검사
 
 
 def _hhmm(t: str) -> str:
@@ -297,6 +297,8 @@ class DayTrader:
                 r = fn()
             except Exception as e:  # noqa: BLE001
                 r = AgentResult(no, "", "reject", f"오류로 거부: {e}")
+            if r.decision == "reject" and no in self.s.filters.get("advisory", []):
+                r = AgentResult(r.no, r.agent, "info", f"반대 의견(막지는 않음): {r.reason}", {**r.data, "would_reject": True})
             results.append(r)
             if r.blocks:
                 blocked = r
@@ -441,7 +443,9 @@ class DayTrader:
         })
         self.j.snapshot("inplay", [{
             "code": c, "name": ip.name, "relvol": ip.relvol, "relvol_measured": ip.relvol_measured, "or_high": ip.rng.high, "or_low": ip.rng.low,
-            "or_end": ip.rng.end, "atr": ip.atr, "vi_upper": st.static_vi_upper(ip.rng.open, self.s.strategy["static_vi_pct"]),
+            "or_end": ip.rng.end, "atr": ip.atr, "vi_upper": st.static_vi_upper(st.vi_reference(
+                ip.rng.open, self.quotes[c].price if c in self.quotes else ip.rng.open, self.s.strategy["static_vi_pct"]),
+                self.s.strategy["static_vi_pct"]),
             "price": self.quotes[c].price if c in self.quotes else None,
             "change_pct": self.quotes[c].change_pct if c in self.quotes else None,
             "status": self.codes[c].status, "note": self.codes[c].note, "pm_note": ip.note,

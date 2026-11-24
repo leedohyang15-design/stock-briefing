@@ -55,3 +55,19 @@ def test_ticks_and_costs():
     assert add_ticks(19_990, 1) == 20_000 and add_ticks(20_000, 1) == 20_050
     assert add_ticks(10_000, -2) == 9_980
     assert round(round_trip_cost(100_000, 100_000, 0.015, 0.2), 2) == 15 + 215
+
+
+def test_order_imbalance_same_result_any_order():
+    up = [Trade(f"0930{s:02d}", 100 + s, 10) for s in range(10)]           # 과거→최신, 상승
+    old_first = st.order_imbalance(up)
+    new_first = st.order_imbalance(list(reversed(up)))
+    assert old_first == new_first and old_first[2] > 0.9                   # 오르는 종목은 매수 주도
+
+
+def test_vi_reference_after_earlier_vi():
+    ref = st.vi_reference(295_000, 362_500, 10.0)
+    assert round(ref) == 356_950                                            # 295,000 → 324,500 → 356,950
+    room = st.vi_room_pct(362_500, ref, 10.0)
+    assert round(room, 1) == 8.3
+    assert st.vi_reference(10_000, 10_500, 10.0) == 10_000                  # 아직 VI 전이면 시가 그대로
+    assert st.vi_reference(10_000, 50_000, 0) == 10_000                     # 미장(VI 없음)

@@ -83,7 +83,7 @@ header{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:s
 .chip{font-size:11px;padding:0 6px;border:2px solid var(--ink)}
 .c-watch{background:var(--panel2)}.c-pending{background:var(--yellow);color:var(--ink)}.c-hold{background:var(--red);color:#fff}.c-blocked{background:#555;color:#ccc}.c-done{background:var(--green);color:var(--ink)}
 .orb{position:relative;height:8px;background:var(--ink);margin-top:6px;border:2px solid var(--ink)}
-.orb .rng{position:absolute;top:0;height:4px;background:var(--blue)}.orb .px{position:absolute;top:-4px;width:4px;height:12px;background:var(--yellow)}
+.orb .rng{position:absolute;top:0;height:4px;background:var(--blue)}.orb .mk{position:absolute;top:-4px;width:4px;height:12px;background:var(--yellow)}
 #chart{height:400px;border:4px solid var(--ink)}
 .legend{display:flex;flex-wrap:wrap;gap:12px;font-size:11px;color:var(--muted);margin-top:6px}
 .flow{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
@@ -117,6 +117,7 @@ table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:6px;borde
   </div>
   <div style="display:flex;gap:10px;flex-wrap:wrap">
     <nav class="tabs" aria-label="시장"><button class="btn" id="mKR">🇰🇷 국장</button><button class="btn" id="mUS">🇺🇸 미장</button></nav>
+    <button class="btn" id="bAll" title="사무실의 모든 에이전트 말풍선을 켜고 끕니다">💬 말풍선 전부</button>
     <nav class="tabs" aria-label="화면"><button class="btn on" id="tToday">오늘</button><button class="btn" id="tWeek">주간 복기</button></nav>
   </div>
 </header>
@@ -158,6 +159,8 @@ table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:6px;borde
       <div class="seg"><button class="btn on" id="sStock">이 종목 검사</button><button class="btn" id="sPre">장전 회의</button></div></div>
       <div class="feed" id="feed"></div></section>
   </div>
+  <section class="px" aria-label="장전 회의실"><h2>장전 회의실 · 1~8번 의견 <span class="small muted">매일 장전에 시장·뉴스·공시·테마·수급을 보고 관심종목을 정해요</span></h2>
+    <div id="meeting"></div></section>
   <section class="px" aria-label="오늘 있었던 일"><h2>오늘 있었던 일</h2><div id="events"></div></section>
 </div>
 <div id="week" style="display:none;flex-direction:column;gap:16px"></div>
@@ -171,6 +174,7 @@ const won=n=>M==='us'?'$'+(n||0).toLocaleString('en-US',{minimumFractionDigits:2
 const pct=(n,d=2)=>(n>0?'+':'')+(n||0).toFixed(d)+'%';
 const cls=n=>n>0?'up':(n<0?'down':'muted');
 const cache={};const put=(id,html)=>{if(cache[id]!==html){cache[id]=html;$(id).innerHTML=html}};
+let showAll=false;
 let S=null, sel=null, feedMode='stock', chart=null, cs=null, vs=null, lines=[], lastBarsKey='', lastResultId=0, talk={};
 
 /* ── 픽셀 캐릭터 (16x20) ── */
@@ -220,6 +224,7 @@ window.addEventListener('resize',fitScene);
 
 function setMarket(k){M=k;try{localStorage.setItem('mkt',k)}catch(e){}$('mKR').classList.toggle('on',k==='kr');$('mUS').classList.toggle('on',k==='us');
   sel=null;lastBarsKey='';lastResultId=0;talk={};for(const key in cache) delete cache[key];if(chart){chart.remove();chart=null;cs=null;vs=null;lines=[]}tick();if($('week').style.display!=='none') loadWeek()}
+$('bAll').onclick=()=>{showAll=!showAll;$('bAll').classList.toggle('on',showAll);renderAgents()};
 $('mKR').onclick=()=>setMarket('kr');$('mUS').onclick=()=>setMarket('us');
 $('tToday').onclick=()=>{$('tToday').classList.add('on');$('tWeek').classList.remove('on');$('today').style.display='flex';$('week').style.display='none';fitScene()};
 $('tWeek').onclick=()=>{$('tWeek').classList.add('on');$('tToday').classList.remove('on');$('today').style.display='none';$('week').style.display='flex';loadWeek()};
@@ -232,7 +237,7 @@ function agentStates(){
   const ip=(S.inplay||[]).find(i=>i.code===sel);
   if(ip){st[9]={d:'pass',line:`${ip.name} 거래량이 평소 ${(ip.relvol||0).toFixed(1)}배예요${ip.relvol_measured?'':'(추정)'}`};st[10]={d:'wait',line:`${ip.name} 시가범위 ${won(ip.or_high)} 돌파를 기다리는 중`}}
   const sig=(S.signals||[]).find(g=>g.code===sel);
-  if(sig) (S.results||[]).filter(r=>r.signal_id===sig.id).forEach(r=>st[r.no]={d:r.decision,line:r.line,id:r.id});
+  if(sig) (S.results||[]).filter(r=>r.signal_id===sig.id).forEach(r=>st[r.no]={d:(r.data&&r.data.would_reject)?'wait':r.decision,line:r.line,id:r.id});
   const rg=(S.status||{}).regime;if(rg&&!(st[13]&&st[13].id)) st[13]={d:rg.decision,line:rg.decision==='reject'?rg.reason+'. 지금은 사지 말자!':rg.reason};
   if(S.phase.key==='review'||S.phase.key==='done'){const r=(S.results||[]).find(x=>x.no===17);if(r) st[17]={d:'info',line:r.reason}}
   return st;
@@ -247,7 +252,7 @@ function renderAgents(){
     const lab={pass:'OK',reject:'NO',wait:'..',info:'!'};
     if(s){b.style.display='';b.className='badge b-'+s.d;b.textContent=lab[s.d]||'!'}else b.style.display='none';
     a.classList.toggle('no',!!s&&s.d==='reject');a.classList.toggle('act',working.has(+no));
-    const tk=talk[no], show=s&&tk&&(tk.manual||Date.now()-tk.t<15000);
+    const tk=talk[no], show=s&&(showAll||(tk&&(tk.manual||Date.now()-tk.t<15000)));
     a.classList.toggle('talk',!!show);
     if(s){const html=esc(s.line||'');if(bb.innerHTML!==html) bb.innerHTML=html;bb.className='bubble '+(s.d==='reject'?'r':(s.d==='pass'?'p':''))}
   });
@@ -274,7 +279,7 @@ function renderStocks(){
     const toB=p>hi?'돌파!':`돌파까지 ${pct((hi-p)/p*100,1)}`;const pos=i.position?` · 보유 ${pct((p-i.position.avg_price)/i.position.avg_price*100)}`:'';
     return `<button class="stock ${i.code===sel?'sel':''}" data-c="${i.code}"><div class="row"><b>${esc(i.name)}</b>${chipOf(i)}</div>
      <div class="row small"><span>${won(i.price)} <span class="${cls(i.change_pct)}">${pct(i.change_pct)}</span> · 거래량 ${(i.relvol||0).toFixed(1)}배${i.relvol_measured?'':'(추정)'}${pos}</span><span class="${p>hi?'up':'muted'}">${toB}</span></div>
-     <div class="orb"><span class="rng" style="left:${(lo-mn)/w*100}%;width:${span/w*100}%"></span><span class="px" style="left:calc(${(p-mn)/w*100}% - 2px)"></span></div>
+     <div class="orb"><span class="rng" style="left:${(lo-mn)/w*100}%;width:${span/w*100}%"></span><span class="mk" style="left:calc(${Math.min(100,Math.max(0,(p-mn)/w*100))}% - 2px)"></span></div>
      ${i.note?`<div class="small muted">${esc(i.note)}</div>`:''}</button>`}).join(''):`<div class="empty">${S.phase.steps[1][2]} 이후 거래량이 몰린 종목을 여기에 보여줘요.</div>`);
   document.querySelectorAll('.stock').forEach(b=>b.onclick=()=>{sel=b.dataset.c;cache.stocks='';renderAll(true)});
   const s=S.status||{}, idx=s.index||{}, pre=S.premarket||{};
@@ -321,7 +326,7 @@ function renderFlow(){
   const icon={pass:'OK',reject:'NO',wait:'..',none:'·'};
   const nodes=FLOW.map(([no,label])=>{let d='none';
     if(no==='A'){if(sig) d=sig.status==='pending'?'wait':(['filled','unfilled'].includes(sig.status)?'pass':(/사용자|시간 초과|가격/.test(sig.reason||'')?'reject':'none'))}
-    else if(res[no]) d=res[no].decision==='info'?'pass':res[no].decision;
+    else if(res[no]) d=(res[no].data&&res[no].data.would_reject)?'wait':(res[no].decision==='info'?'pass':res[no].decision);
     else if(!sig&&ip) d=no===9?'pass':(no===10?'wait':'none');
     const tip=no==='A'?(sig?sig.reason:''):(res[no]?res[no].reason:'');
     return `<div class="node ${d}" title="${esc(tip)}"><div class="c">${icon[d]}</div><div class="n">${no==='A'?'':no+' '}${label}</div></div>`}).join('<span class="arr">▶</span>');
@@ -354,8 +359,18 @@ function renderFeed(){
   }
   put('feed',html);
 }
+function renderMeeting(){
+  const pre=S.premarket||{};const rs=(pre.results||[]).filter(r=>r.no<=5||r.no===8);
+  if(!rs.length){put('meeting',`<div class="empty">아직 오늘 장전 회의 전이에요 (${S.phase.steps[0][2]} 시작).</div>`);return}
+  const names={};(pre.pool||[]).forEach(p=>names[p.code]=p.name);(pre.watchlist||[]).forEach(w=>names[w.code]=w.name);
+  const ops=`<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:8px">${rs.map(r=>say(r.no,S.names[r.no],r.reason,'',null)).join('')}</div>`;
+  const codes=[...new Set([...Object.keys(pre.bull||{}),...Object.keys(pre.bear||{})])];
+  const wl=(pre.watchlist||[]).map(w=>w.code);
+  const deb=codes.length?`<h2 style="margin-top:14px">종목별 토론 · 6 강세론자 vs 7 약세론자</h2><div style="overflow-x:auto"><table><tr><th>종목</th><th>${mini(6)} 강세론</th><th>${mini(7)} 약세론</th><th>PM 결정</th></tr>${codes.map(c=>`<tr><td><b>${esc(names[c]||c)}</b></td><td>${esc((pre.bull||{})[c]||'-')}</td><td>${esc((pre.bear||{})[c]||'-')}</td><td>${wl.includes(c)?'<span class="chip c-done">관심종목</span>':((pre.excluded||{})[c]?'<span class="chip c-hold">제외</span>':'<span class="chip c-watch">보류</span>')}</td></tr>`).join('')}</table></div>`:'<div class="small muted" style="margin-top:10px">강세·약세 토론은 LLM(Gemini) 키가 있을 때 나와요.</div>';
+  put('meeting',ops+deb);
+}
 function renderEvents(){put('events',(S.events||[]).length?S.events.map(e=>`<div class="ev"><span class="t">${e.ts.slice(11,19)}</span><span>${esc(e.line)}</span></div>`).join(''):'<div class="empty">아직 기록이 없어요.</div>')}
-function renderAll(force){renderBoard();renderStocks();renderAgents();renderChart(force);renderFlow();renderFeed();renderEvents()}
+function renderAll(force){renderBoard();renderStocks();renderAgents();renderChart(force);renderFlow();renderFeed();renderMeeting();renderEvents()}
 async function tick(){try{const prev=sel;S=await (await fetch('/api/state?m='+M)).json();renderAll(prev!==sel||!lastBarsKey)}catch(e){$('bNow').textContent='대시보드 서버와 연결이 끊겼어요. 트레이더 창이 켜져 있는지 확인해 주세요.'}}
 async function loadWeek(){
   const W=await (await fetch('/api/week?m='+M)).json();const r=W.report||{},m=r.metrics||{};const days=W.days||[];const mx=Math.max(1,...days.map(d=>Math.abs(d.ret_pct||0)));const sc=r.scorecard||[];

@@ -121,12 +121,20 @@ def position_size(equity: float, risk_pct: float, entry: float, stop: float,
 
 
 def order_imbalance(trades: Sequence[Trade]) -> Tuple[float, float, float]:
-    """tick rule 로 매수/매도 주도 체결량 분류. trades 는 최신이 앞.
+    """tick rule 로 매수/매도 주도 체결량 분류.
 
+    체결 시각(HHMMSS)이 모두 있으면 시각순으로 정렬해 계산한다 (API 가 최신순·과거순 어느 쪽으로 줘도 같은 결과).
+    시각이 없으면 '최신이 앞'으로 가정한다.
     가격이 직전 체결보다 오르면 매수 주도, 내리면 매도 주도, 같으면 직전 분류를 따른다.
     반환: (매수 주도량, 매도 주도량, 불균형 = (매수-매도)/(매수+매도))
     """
-    seq = list(reversed(trades))
+    seq = list(trades)
+    if len(seq) > 1 and all(t.time for t in seq):
+        if seq[0].time > seq[-1].time:      # 최신순으로 왔으면 먼저 뒤집어 같은 초 안의 순서도 과거→최신으로
+            seq.reverse()
+        seq.sort(key=lambda t: t.time)      # 안정 정렬
+    else:
+        seq.reverse()
     buy = sell = 0.0
     side = 0
     for prev, cur in zip(seq[:-1], seq[1:]):
@@ -140,6 +148,17 @@ def order_imbalance(trades: Sequence[Trade]) -> Tuple[float, float, float]:
             sell += cur.qty
     tot = buy + sell
     return buy, sell, ((buy - sell) / tot if tot else 0.0)
+
+
+def vi_reference(open_price: float, price: float, pct: float) -> float:
+    """정적 VI 추정 기준가. VI 가 발동하면 단일가 매매 가격이 새 기준가가 되므로,
+    시가에서 +pct% 씩 올린 기준가 중 현재가 이하인 가장 높은 값으로 근사한다 (이미 지나간 VI 반영)."""
+    if pct <= 0 or open_price <= 0:
+        return open_price
+    ref, step = open_price, 1 + pct / 100
+    while ref * step <= price:
+        ref *= step
+    return ref
 
 
 def static_vi_upper(reference: float, pct: float) -> float:
