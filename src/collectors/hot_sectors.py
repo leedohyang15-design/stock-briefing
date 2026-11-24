@@ -1,6 +1,6 @@
 """[섹션 2] 실시간 주도 섹터 & 국내외 핵심 종목.
 
-국내(네이버 테마시세)를 2단계로 분류한다.
+국내(네이버 증권 테마시세 JSON — m.stock.naver.com/api/stocks/theme)를 2단계로 분류한다.
   - 빅 섹션: 거래대금이 큰 '주류' 급등 테마 (반도체·정유 등)
   - 스몰(기타) 종목: 상한가 한 방으로 테마 등락률만 튄 소형주는 개별 종목으로 격리
 중복 테마(구성 상위종목 70% 이상 일치)는 하나로 병합한다.
@@ -11,26 +11,13 @@
 """
 from __future__ import annotations
 
-import re
-from typing import List, Tuple
-
-import requests
-from bs4 import BeautifulSoup
+from typing import Any, Dict, List, Tuple
 
 from .. import _ssl_bootstrap  # noqa: F401  (yfinance 요청 전에 SSL 경로 보정)
 import yfinance as yf
 
+from . import _naver
 from .watchlist import Stock, ThemeGroup  # 포맷터/요약기와 호환되는 모델 재사용
-
-_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-        "(KHTML, like Gecko) Chrome/122.0 Safari/537.36"
-    ),
-    "Referer": "https://finance.naver.com/",
-}
-_LIST_URL = "https://finance.naver.com/sise/theme.naver?field=change_rate&ordering=desc"
-_DETAIL_URL = "https://finance.naver.com/sise/sise_group_detail.naver?type=theme&no={no}"
 
 _SCAN_THEMES = 20          # 등락률 상위 몇 개 테마를 훑을지
 _MERGE_RATIO = 0.7         # 구성 상위종목 겹침 비율이 이 이상이면 병합
@@ -44,20 +31,6 @@ _US_MEGACAPS = [
     ("알파벳(구글)", "GOOGL"), ("아마존", "AMZN"), ("메타", "META"),
     ("브로드컴", "AVGO"), ("테슬라", "TSLA"), ("일라이릴리", "LLY"), ("버크셔", "BRK-B"),
 ]
-
-
-def _parse_pct(text: str):
-    try:
-        return float(text.replace("%", "").replace("+", "").replace(",", "").strip())
-    except (ValueError, AttributeError):
-        return None
-
-
-def _parse_num(text: str):
-    try:
-        return float(text.replace(",", "").strip())
-    except (ValueError, AttributeError):
-        return None
 
 
 class _RawTheme:
@@ -80,24 +53,22 @@ class _RawTheme:
         return sorted(self.stocks, key=lambda s: s.change_pct, reverse=True)[:n]
 
 
-def _fetch_theme_detail(no: str) -> List[Stock]:
-    resp = requests.get(_DETAIL_URL.format(no=no), headers=_HEADERS, timeout=10)
-    resp.encoding = "euc-kr"
-    soup = BeautifulSoup(resp.text, "lxml")
+def _parse_theme_stocks(rows: List[Dict[str, Any]]) -> List[Stock]:
+    """테마 상세 구성종목 dict → Stock (trade_value 단위: 백만원, 기존과 동일)."""
     stocks: List[Stock] = []
-    for tr in soup.select("table.type_5 tr"):
-        a = tr.select_one("a")
-        tds = tr.select("td")
-        if a is None or len(tds) < 9:
-            continue
-        name = a.get_text(strip=True)
-        price = _parse_num(tds[2].get_text(strip=True))   # 현재가
-        chg = _parse_pct(tds[4].get_text(strip=True))     # 등락률
-        tval = _parse_num(tds[8].get_text(strip=True))    # 거래대금(백만원)
+    for r in rows:
+        name = str(r.get("stockName", "")).strip()
+        price = _naver.num(r.get("closePrice"))            # 현재가
+        chg = _naver.num(r.get("fluctuationsRatio"))       # 등락률
+        tval = _naver.num(r.get("accumulatedTradingValue"))  # 거래대금(백만원)
         if name and price is not None and chg is not None:
-            stocks.append(Stock(name=name, ticker="", close=price, change_pct=chg,
-                                currency="KRW", trade_value=tval))
+            stocks.append(Stock(name=name, ticker=str(r.get("itemCode", "")), close=price,
+                                change_pct=chg, currency="KRW", trade_value=tval))
     return stocks
+
+
+def _fetch_theme_detail(no: str) -> List[Stock]:
+    return _parse_theme_stocks(_naver.fetch_theme_stocks(no))
 
 
 def _merge_overlaps(themes: List[_RawTheme]) -> List[_RawTheme]:
@@ -129,21 +100,9 @@ def fetch_trending(themes_n: int = 3, per_sector: int = 2,
     """
     raws: List[_RawTheme] = []
     try:
-        resp = requests.get(_LIST_URL, headers=_HEADERS, timeout=10)
-        resp.encoding = "euc-kr"
-        soup = BeautifulSoup(resp.text, "lxml")
-        for tr in soup.select("table.type_1 tr"):
-            a = tr.select_one("td.col_type1 a")
-            tds = tr.select("td")
-            if a is None or len(tds) < 2:
-                continue
-            name = a.get_text(strip=True)
-            chg = _parse_pct(tds[1].get_text(strip=True))
-            m = re.search(r"no=(\d+)", a.get("href", ""))
-            if not (name and chg is not None and m):
-                continue
+        for no, name, chg in _naver.fetch_theme_list():
             try:
-                stocks = _fetch_theme_detail(m.group(1))
+                stocks = _fetch_theme_detail(no)
             except Exception as e:  # noqa: BLE001
                 print(f"[hot_sectors] '{name}' 상세 실패: {e}")
                 continue

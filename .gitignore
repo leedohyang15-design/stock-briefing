@@ -16,3 +16,6 @@ env/
 
 # 로컬 에디터/도구 설정
 .claude/
+
+# --dry-run 출력
+briefing_dry_run.html

@@ -79,7 +79,7 @@ def _send_memo(access_token: str, text: str, link_url: str, button_title: str,
     return True
 
 
-def send_kakao_memo(text: str, link_url: str = "https://finance.naver.com",
+def send_kakao_memo(text: str, link_url: str = "https://stock.naver.com",
                     button_title: str = "네이버 금융",
                     buttons: Optional[List[dict]] = None) -> bool:
     """나에게 브리핑 요약을 카카오톡으로 발송. 성공하면 True.

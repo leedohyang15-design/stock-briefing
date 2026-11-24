@@ -1,0 +1,82 @@
+[
+ {
+  "itemCode": "005930",
+  "bizdate": "20261123",
+  "foreignerPureBuyQuant": "-45,179",
+  "foreignerHoldRatio": "45.85%",
+  "organPureBuyQuant": "+661,271",
+  "individualPureBuyQuant": "-673,869",
+  "closePrice": "180,600",
+  "compareToPreviousClosePrice": "-2,500",
+  "compareToPreviousPrice": {
+   "code": "5",
+   "text": "하락",
+   "name": "FALLING"
+  },
+  "accumulatedTradingVolume": "19,587,800"
+ },
+ {
+  "itemCode": "005930",
+  "bizdate": "20261120",
+  "foreignerPureBuyQuant": "-2,299,994",
+  "foreignerHoldRatio": "45.85%",
+  "organPureBuyQuant": "-1,915,397",
+  "individualPureBuyQuant": "+4,051,865",
+  "closePrice": "180,900",
+  "compareToPreviousClosePrice": "-16,000",
+  "compareToPreviousPrice": {
+   "code": "5",
+   "text": "하락",
+   "name": "FALLING"
+  },
+  "accumulatedTradingVolume": "17,713,847"
+ },
+ {
+  "itemCode": "005930",
+  "bizdate": "20261119",
+  "foreignerPureBuyQuant": "-561,332",
+  "foreignerHoldRatio": "45.90%",
+  "organPureBuyQuant": "-186,318",
+  "individualPureBuyQuant": "+735,721",
+  "closePrice": "197,400",
+  "compareToPreviousClosePrice": "2,700",
+  "compareToPreviousPrice": {
+   "code": "2",
+   "text": "상승",
+   "name": "RISING"
+  },
+  "accumulatedTradingVolume": "12,836,690"
+ },
+ {
+  "itemCode": "005930",
+  "bizdate": "20261118",
+  "foreignerPureBuyQuant": "-869,394",
+  "foreignerHoldRatio": "45.91%",
+  "organPureBuyQuant": "+1,104,534",
+  "individualPureBuyQuant": "-294,766",
+  "closePrice": "196,400",
+  "compareToPreviousClosePrice": "6,100",
+  "compareToPreviousPrice": {
+   "code": "2",
+   "text": "상승",
+   "name": "RISING"
+  },
+  "accumulatedTradingVolume": "17,692,254"
+ },
+ {
+  "itemCode": "005930",
+  "bizdate": "20261117",
+  "foreignerPureBuyQuant": "-2,484,383",
+  "foreignerHoldRatio": "45.96%",
+  "organPureBuyQuant": "+875,284",
+  "individualPureBuyQuant": "+1,564,790",
+  "closePrice": "189,800",
+  "compareToPreviousClosePrice": "-7,000",
+  "compareToPreviousPrice": {
+   "code": "5",
+   "text": "하락",
+   "name": "FALLING"
+  },
+  "accumulatedTradingVolume": "16,773,338"
+ }
+]

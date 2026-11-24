@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import os
 import sys
 
 from .config import config
@@ -28,7 +29,7 @@ def _safe(label, fn, default):
         return default
 
 
-def run(force: bool = False) -> int:
+def run(force: bool = False, dry_run: bool = False) -> int:
     today = today_kst()
 
     if is_market_holiday(today) and not force:
@@ -89,6 +90,16 @@ def run(force: bool = False) -> int:
     html_body = formatter.build_html(briefing)
 
     # ── 4. 발송 (이메일) ──────────────────────────────────
+    if dry_run:
+        # 발송 없이 결과만 확인 (로컬/개발 환경 점검용)
+        out_path = os.environ.get("BRIEFING_DRY_RUN_HTML", "briefing_dry_run.html")
+        with open(out_path, "w", encoding="utf-8") as f:
+            f.write(html_body)
+        print(f"[main] --dry-run: 발송 생략. 제목: {subject}")
+        print(text_body)
+        print(f"[main] HTML 저장: {out_path}")
+        return 0
+
     # 카카오톡 '나에게 보내기'는 푸시 알림이 안 떠 확인이 어려워 비활성화함.
     # (kakao.py 모듈은 남겨둠 — 다시 쓰려면 여기서 send_kakao_memo 를 호출)
     if not config.has_email:
@@ -102,4 +113,4 @@ def run(force: bool = False) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(run(force="--force" in sys.argv))
+    sys.exit(run(force="--force" in sys.argv, dry_run="--dry-run" in sys.argv))
