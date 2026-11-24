@@ -93,7 +93,8 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="AI 단타 트레이더 원클릭 실행")
     ap.add_argument("--live", action="store_true", help="실계좌 (기본은 모의투자)")
     ap.add_argument("--yes", action="store_true", help="실계좌 확인 문구 생략 (작업 스케줄러용)")
-    ap.add_argument("--paper-cash", type=float, default=100_000.0, help="모의투자 가상 예수금 (기본 10만원)")
+    ap.add_argument("--market", choices=["kr", "us"], default="kr", help="kr=국장, us=미장(모의투자만)")
+    ap.add_argument("--paper-cash", type=float, default=None, help="모의투자 가상 예수금 (기본: 국장 10만원, 미장 1,000달러)")
     ap.add_argument("--no-dashboard", action="store_true")
     ap.add_argument("--browser", action="store_true", help="전용 창 대신 브라우저로 화면 열기")
     ap.add_argument("--force", action="store_true", help="휴장일에도 실행 (연결 확인용)")
@@ -102,12 +103,17 @@ def main(argv=None) -> int:
     (ROOT / "data").mkdir(exist_ok=True)
     ensure_packages()
 
-    from ..holidays_kr import is_market_holiday
-    from .models import now_kst
     from .run_day import build
 
-    if is_market_holiday(now_kst().date()) and not args.force:
-        print("오늘은 휴장일입니다. 창을 닫으셔도 됩니다.")
+    from . import market as mk
+    m = mk.activate(args.market)
+    if args.paper_cash is None:
+        args.paper_cash = 1_000.0 if m.key == "us" else 100_000.0
+    if m.key == "us" and args.live:
+        print("미장은 아직 모의투자만 지원합니다.")
+        return 1
+    if m.is_holiday(m.today()) and not args.force:
+        print(f"오늘은 {m.name} 휴장일입니다. 창을 닫으셔도 됩니다.")
         if not args.yes:
             input("엔터를 누르면 종료합니다...")
         return 0
@@ -123,12 +129,15 @@ def main(argv=None) -> int:
         print("   매수 체결 알림이 오면 증권사 앱에서 손절 예약(스탑로스)을 함께 걸어 두세요.")
         print("=" * 60)
     dash, url = (None, None) if args.no_dashboard else start_dashboard()
+    if url:
+        url += f"/?m={m.key}"
     mode = "실계좌" if args.live else f"모의투자 (가상 {args.paper_cash:,.0f}원, 실제 주문 없음)"
     print(f"[트레이더] {mode} 시작. 창을 닫으면 멈춥니다. 장 마감 후 15:40 리포트까지 켜 두세요.")
 
     def trader():
         try:
-            run_with_restart(lambda: build(dry_run=not args.live, paper_cash=args.paper_cash).run(args.paper_cash))
+            run_with_restart(lambda: build(dry_run=not args.live, paper_cash=args.paper_cash,
+                                           market_key=m.key).run(args.paper_cash))
         except Exception as e:  # noqa: BLE001
             print(f"[트레이더] 멈춤: {e}")
 

@@ -64,9 +64,9 @@ def ensure_open_volumes(kis, journal: Journal, code: str, minutes: int, days: in
     """실측 상대거래량용: 최근 days 거래일의 09:00~시가범위 끝 분봉을 받아 저장 (날짜당 1회 호출, 캐시)."""
     from . import strategy as st
     today = now_kst().strftime("%Y%m%d")
-    until = st.hhmm_add("0900", minutes) + "00"
+    until = st.hhmm_add(st.SESSION_OPEN, minutes) + "00"
     for d in [b.date for b in journal.daily_bars(code, before=today, n=days)]:
-        if journal.bars(code, d)[:1] and journal.bars(code, d)[0].time <= "0900":
+        if journal.bars(code, d)[:1] and journal.bars(code, d)[0].time <= st.SESSION_OPEN:
             continue
         try:
             bars = kis.minute_bars_past(code, d, until)

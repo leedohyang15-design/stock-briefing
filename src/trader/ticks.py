@@ -9,26 +9,55 @@ _TICKS = [
 ]
 
 
-def tick_size(price: float) -> int:
+MARKET = "kr"   # market.activate() 가 바꾼다 ("kr" | "us")
+
+
+def tick_size(price: float):
+    if MARKET == "us":
+        return 0.01 if price >= 1 else 0.0001   # 미국 주식 호가 단위
     for bound, tick in _TICKS:
         if price < bound:
             return tick
     return 1_000
 
 
-def round_to_tick(price: float, up: bool = False) -> int:
+def _num(x: float):
+    return round(x, 4) if MARKET == "us" else int(round(x))
+
+
+def round_to_tick(price: float, up: bool = False):
     t = tick_size(price)
     f = math.ceil if up else math.floor
-    return int(f(price / t) * t)
+    return _num(f(round(price / t, 6)) * t)
 
 
-def add_ticks(price: float, n: int) -> int:
+def add_ticks(price: float, n: int):
     """price 에서 n 호가 위(+)/아래(-) 가격."""
     p = round_to_tick(price, up=n > 0)
     step = 1 if n > 0 else -1
     for _ in range(abs(n)):
-        p += step * tick_size(p if step > 0 else p - 1)
-    return int(p)
+        p += step * tick_size(p if step > 0 else p - tick_size(p) / 2)
+    return _num(p)
+
+
+def fmt_px(p: float) -> str:
+    """가격 표시 (국장: 10,300원 / 미장: $182.35)."""
+    return f"${p:,.2f}" if MARKET == "us" else f"{p:,.0f}원"
+
+
+def fmt_amt(v: float) -> str:
+    """금액 표시 (국장: 1,234원 / 미장: $12.34)."""
+    return f"${v:,.2f}" if MARKET == "us" else f"{v:,.0f}원"
+
+
+def fmt_signed(v: float) -> str:
+    """부호 있는 금액 (국장: +1,234원 / 미장: +$12.34)."""
+    return (f"{'+' if v >= 0 else '-'}${abs(v):,.2f}") if MARKET == "us" else f"{v:+,.0f}원"
+
+
+def fmt_big(v: float) -> str:
+    """큰 금액 (국장: 500억 / 미장: $12.3M)."""
+    return f"${v / 1e6:,.1f}M" if MARKET == "us" else f"{v / 1e8:,.0f}억"
 
 
 def round_trip_cost(buy_amt: float, sell_amt: float, fee_pct: float, tax_pct: float) -> float:

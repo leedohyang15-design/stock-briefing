@@ -6,7 +6,7 @@ from typing import Callable, Dict, List, Optional
 
 from .journal import Journal
 from .models import Position, now_kst
-from .ticks import round_trip_cost
+from .ticks import round_trip_cost, fmt_px, fmt_signed
 
 
 class Executor:
@@ -51,14 +51,14 @@ class Executor:
             filled, avg, _ = self.broker.order_status(res.order_no)
         self.j.update_order(oid, "filled" if filled >= qty else ("partial" if filled else "cancelled"), filled, avg)
         if filled <= 0:
-            self.j.event("정보", f"{name} 매수 미체결 → 취소 ({limit_price:,}원)", code)
+            self.j.event("정보", f"{name} 매수 미체결 → 취소 ({fmt_px(limit_price)})", code)
             return 0
         pos = Position(code=code, name=name, qty=filled, avg_price=avg or limit_price, stop=stop,
                        entry_time=now_kst().strftime("%H%M"), signal_id=signal_id)
         self.positions[code] = pos
         self.trade_ids[code] = self.j.open_trade(code, name, signal_id, pos.avg_price, filled, stop, self.mode)
-        self.j.event("체결", f"{name} {filled}주 @{pos.avg_price:,.0f}원 매수 체결 · 손절 {stop:,.0f}", code)
-        self.notify(f"✅ 매수 체결: {name} {filled}주 @{pos.avg_price:,.0f}원\n손절 {stop:,.0f}원 · 15:15 자동 청산\n"
+        self.j.event("체결", f"{name} {filled}주 @{fmt_px(pos.avg_price)} 매수 체결 · 손절 {stop:,.0f}", code)
+        self.notify(f"✅ 매수 체결: {name} {filled}주 @{fmt_px(pos.avg_price)}\n손절 {fmt_px(stop)} · 장 마감 전 자동 청산\n"
                     f"(PC가 꺼질 때를 대비해 증권사 앱에 손절 예약을 걸어두세요)")
         return filled
 
@@ -89,8 +89,8 @@ class Executor:
         if pos.qty <= 0:
             self.positions.pop(code, None)
             self.trade_ids.pop(code, None)
-        self.j.event("매도", f"{pos.name} {filled}주 @{px:,.0f} {reason} · 손익 {net:+,.0f}원 (비용 {cost:,.0f})", code)
-        self.notify(f"{'🔺' if net > 0 else '🔻'} {reason}: {pos.name} {filled}주 @{px:,.0f}원 · {net:+,.0f}원")
+        self.j.event("매도", f"{pos.name} {filled}주 @{px:,.0f} {reason} · 손익 {fmt_signed(net)} (비용 {cost:,.0f})", code)
+        self.notify(f"{'🔺' if net > 0 else '🔻'} {reason}: {pos.name} {filled}주 @{fmt_px(px)} · {fmt_signed(net)}")
         return net
 
     def check_stops(self, prices: Dict[str, float]) -> float:

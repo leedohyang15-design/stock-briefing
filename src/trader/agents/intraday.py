@@ -84,11 +84,13 @@ def orb_check(price: float, ip: InPlay, require_bullish: bool) -> AgentResult:
 
 
 # ── 11. 주문 불균형 ──────────────────────────────────
-def imbalance_check(trades: Sequence[Trade], n: int, min_oib: float) -> AgentResult:
+def imbalance_check(trades: Sequence[Trade], n: int, min_oib: float, require_data: bool = True) -> AgentResult:
     buy, sell, oib = st.order_imbalance(list(trades)[:n])
     pct = buy / (buy + sell) * 100 if buy + sell else 50.0
     data = {"buy": buy, "sell": sell, "oib": round(oib, 3), "buy_pct": round(pct, 1)}
     if buy + sell == 0:
+        if not require_data:
+            return AgentResult(11, "주문 불균형", "info", "체결 데이터를 못 받아 참고만 (거부 안 함)", data)
         return AgentResult(11, "주문 불균형", "reject", "최근 체결 데이터 없음", data)
     if oib > min_oib:
         return AgentResult(11, "주문 불균형", "pass", f"매수 주도 {pct:.0f}% (불균형 {oib:+.2f})", data)
@@ -130,7 +132,7 @@ def news_check(llm, name: str, news: List[Dict[str, str]], notices: List[Dict[st
             return AgentResult(12, "실시간 뉴스·공시", "reject", "LLM 없음 → 보수적으로 거부 (llm_required)")
         return AgentResult(12, "실시간 뉴스·공시", "pass", "키워드 악재 없음 (LLM 미사용)")
     lines = "\n".join(f"- [{k}] {n.get('date', '')} {n['title']}" for k, n in items)
-    out = llm.json("너는 한국 주식 단타팀의 실시간 뉴스·공시 확인 담당이다. 호재 여부가 아니라 '오늘 장중 급락이나 "
+    out = llm.json("너는 주식 단타팀의 실시간 뉴스·공시 확인 담당이다. 뉴스가 영어면 영어로 이해하고 한국어로 답한다. 호재 여부가 아니라 '오늘 장중 급락이나 "
                    "거래정지 위험이 있는 악재'가 있는지만 판단한다.",
                    f"종목: {name}\n최근 뉴스·공시:\n{lines}\n\n"
                    '형식: {"verdict": "pass 또는 reject", "reason": "한 문장"}', 300)
@@ -156,6 +158,8 @@ def regime_check(index_change_pct: float, block_below_pct: float, market: str = 
 
 # ── 14. VI 감시 ─────────────────────────────────────
 def vi_check(q: Quote, reference: float, static_pct: float, guard_pct: float) -> AgentResult:
+    if static_pct <= 0:
+        return AgentResult(14, "VI 감시", "pass", "이 시장은 정적 VI 제도가 없어 생략")
     if q.vi_active:
         return AgentResult(14, "VI 감시", "reject", "VI 발동 중 (단일가 매매) → 진입 금지")
     room = st.vi_room_pct(q.price, reference, static_pct)

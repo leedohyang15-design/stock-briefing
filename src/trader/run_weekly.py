@@ -74,8 +74,11 @@ def main() -> None:
     ap.add_argument("--hold", type=int)
     ap.add_argument("--rollback", type=int)
     ap.add_argument("--listen-hours", type=float, default=36.0)
+    ap.add_argument("--market", choices=["kr", "us"], default="kr")
     args = ap.parse_args()
-    s, j = Settings.load(), Journal()
+    from . import market as mk
+    m = mk.activate(args.market)
+    s, j = Settings.load(m.config_path), Journal(m.db_path)
     if args.apply:
         print(apply_proposal(j, s, args.apply))
         return
@@ -91,6 +94,9 @@ def main() -> None:
     pid = save_proposal(j, rep)
     sec = s.secrets
     tg = Telegram(sec.telegram_token, sec.telegram_chat_id) if sec.has_telegram else NullTelegram()
+    if m.tg_prefix:
+        from .run_day import PrefixTelegram
+        tg = PrefixTelegram(tg, m.tg_prefix)
     msg = rep["text"]
     if pid:
         prop = j.query("SELECT changes FROM proposals WHERE id=?", (pid,))[0]["changes"]
@@ -105,7 +111,7 @@ def main() -> None:
 
     def _apply(a):
         done["v"] = True
-        return apply_proposal(j, Settings.load(), int(a or pid))
+        return apply_proposal(j, Settings.load(m.config_path), int(a or pid))
 
     def _hold(a):
         done["v"] = True

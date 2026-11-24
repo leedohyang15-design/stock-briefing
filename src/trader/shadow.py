@@ -8,7 +8,7 @@ from __future__ import annotations
 from typing import Callable, Dict, List, Optional
 
 from .journal import Journal
-from .ticks import add_ticks
+from .ticks import add_ticks, fmt_px
 
 
 class ShadowBook:
@@ -27,7 +27,7 @@ class ShadowBook:
             return None          # 종목당 하루 1건 (실제 규칙과 동일)
         entry = add_ticks(price, self.slip) if self.slip else price
         sid = self.j.open_shadow(code, name, signal_id, reason_no, reason, entry, stop)
-        self.log(code, f"👻 그림자 거래 시작: {name} 를 샀다면 {entry:,.2f} 진입 · 손절 {stop:,.2f} (실제 주문 없음)")
+        self.log(code, f"👻 그림자 거래 시작: {name} 를 샀다면 {fmt_px(entry)} 진입 · 손절 {fmt_px(stop)} (실제 주문 없음)")
         return sid
 
     def _close(self, row: Dict, price: float, why: str) -> float:

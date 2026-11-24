@@ -6,18 +6,21 @@ LLM 이 없거나 실패하면 규칙 기반 대체 결과를 낸다.
 """
 from __future__ import annotations
 
+from ..ticks import fmt_big
+
 import json
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List
 
 from ..models import AgentResult, Candidate
 
-_SYS = ("너는 한국 주식 단타(당일 매매) 트레이딩팀의 {role}다. 과장 없이 사실과 데이터에 근거해 "
+_SYS = ("너는 {market} 주식 단타(당일 매매) 트레이딩팀의 {role}다. 영어 자료는 이해해서 한국어로 답한다. 과장 없이 사실과 데이터에 근거해 "
         "짧은 한국어로 답한다. 모르는 것은 모른다고 한다.")
 
 
 def _sys(role: str) -> str:
-    return _SYS.format(role=role)
+    from .. import market
+    return _SYS.format(role=role, market="미국" if market.CURRENT.key == "us" else "한국")
 
 
 @dataclass
@@ -28,6 +31,26 @@ class PremarketInputs:
     themes: Callable[[], List[str]]
     pool: Callable[[], List[Dict[str, Any]]]
     notices: Callable[[str], List[Dict[str, str]]]
+
+
+def default_inputs_us(kis) -> PremarketInputs:
+    """미장: 해외 지수(yfinance), 한국투자증권 해외뉴스·거래량 순위·종목 뉴스."""
+    from ...collectors import indices
+
+    def _idx():
+        return [f"{q.name} {q.value:,.2f} ({q.change_pct:+.2f}%)" for q in indices.fetch_indices()]
+
+    def _news():
+        return [f"{r['date'][4:]} {r['time'][:4]} {r['title']}" for r in kis.news_titles("", 15)]
+
+    def _pool():
+        rows = [r for r in kis.volume_rank("value") if r.get("price", 0) >= 5]
+        rows.sort(key=lambda r: r.get("value_krw", 0), reverse=True)
+        return [{"code": r["code"], "name": r["name"], "price": r["price"], "change_pct": r["change_pct"],
+                 "value_krw": r["value_krw"]} for r in rows[:30]]
+
+    return PremarketInputs(indices=_idx, headlines=_news, themes=lambda: [], pool=_pool,
+                           notices=lambda code: kis.news_titles(code, 10))
 
 
 def default_inputs(kis=None) -> PremarketInputs:
@@ -148,13 +171,13 @@ def agent_theme(themes: List[str]) -> AgentResult:
 
 def agent_flow(pool: List[Dict[str, Any]]) -> AgentResult:
     top = pool[:5]
-    txt = ", ".join(f"{s['name']}({s['value_krw'] / 1e8:,.0f}억, {s['change_pct']:+.1f}%)" for s in top)
+    txt = ", ".join(f"{s['name']}({fmt_big(s['value_krw'])}, {s['change_pct']:+.1f}%)" for s in top)
     return AgentResult(5, "수급·거래대금", "info", f"전일 거래대금 상위: {txt}" if top else "데이터 없음", {"top": top})
 
 
 def _brief(results: List[AgentResult], pool: List[Dict[str, Any]]) -> str:
     lines = [f"[{r.agent}] {r.reason}" for r in results]
-    plist = "\n".join(f"- {s['code']} {s['name']} 전일 {s['change_pct']:+.1f}% 거래대금 {s['value_krw'] / 1e8:,.0f}억" for s in pool)
+    plist = "\n".join(f"- {s['code']} {s['name']} 전일 {s['change_pct']:+.1f}% 거래대금 {fmt_big(s['value_krw'])}" for s in pool)
     return "분석가 보고:\n" + "\n".join(lines) + "\n\n후보 종목(전일 거래대금 상위):\n" + plist
 
 

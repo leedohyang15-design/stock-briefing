@@ -57,7 +57,11 @@ class OpeningRange:
         return self.close > self.open
 
 
-def opening_range(bars: Sequence[Bar], minutes: int, start: str = "0900") -> Optional[OpeningRange]:
+SESSION_OPEN = "0900"   # market.activate() 가 바꾼다 (국장 09:00, 미장 09:30 뉴욕시각)
+
+
+def opening_range(bars: Sequence[Bar], minutes: int, start: Optional[str] = None) -> Optional[OpeningRange]:
+    start = start or SESSION_OPEN
     end = hhmm_add(start, minutes)
     rng = [b for b in bars if start <= b.time < end]
     if not rng:

@@ -6,10 +6,13 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 KST = dt.timezone(dt.timedelta(hours=9))
+# 지금 돌고 있는 시장의 시간대 (국장=KST, 미장=뉴욕). market.activate() 가 바꾼다.
+MARKET_TZ: dt.tzinfo = KST
 
 
 def now_kst() -> dt.datetime:
-    return dt.datetime.now(KST)
+    """'시장 현지 시각'. 이름은 예전 그대로지만 미장 모드에서는 뉴욕 시각을 돌려준다."""
+    return dt.datetime.now(MARKET_TZ)
 
 
 @dataclass

@@ -8,7 +8,8 @@ from src.trader.models import KST, Bar, Quote, Trade
 
 
 def today() -> str:
-    return dt.datetime.now(KST).strftime("%Y%m%d")
+    from . import models
+    return dt.datetime.now(models.MARKET_TZ).strftime("%Y%m%d")
 
 
 def trading_days(n: int) -> List[str]:
@@ -30,8 +31,9 @@ def minute_grid(start="0900", end="1530"):
 
 
 class FakeClock:
-    def __init__(self, hhmm: str):
-        d = dt.datetime.now(KST)
+    def __init__(self, hhmm: str, tz=None):
+        from . import models
+        d = dt.datetime.now(tz or models.MARKET_TZ)
         self.t = d.replace(hour=int(hhmm[:2]), minute=int(hhmm[2:]), second=0, microsecond=0)
 
     def now(self):
@@ -57,12 +59,16 @@ class FakeLLM:
 
 class FakeKIS:
     """paths: {code: (name, price_fn(hhmm))} 또는 price_fn 하나 (code=111111).
-    일봉 ATR≈600(6%), 평균 거래량 100만주, 시가범위 양봉 10000→10100."""
+    일봉 ATR≈6%, 평균 거래량 100만주, 시가범위 양봉 (base → base×1.01).
+    base=10000(국장 원), 미장 테스트는 base=100(달러)·open_='0930'·close='1600'."""
 
-    def __init__(self, clock: FakeClock, paths, code="111111", name="샘플반도체"):
+    def __init__(self, clock: FakeClock, paths, code="111111", name="샘플반도체", base=10000.0,
+                 open_="0900", close="1530"):
         self.clock = clock
         self.paths = paths if isinstance(paths, dict) else {code: (name, paths)}
         self.calls: Dict[str, int] = {}
+        self.k = base / 10000.0
+        self.open_, self.close_ = open_, close
 
     def _c(self, k):
         self.calls[k] = self.calls.get(k, 0) + 1
@@ -72,32 +78,38 @@ class FakeKIS:
 
     def quote(self, code):
         self._c("quote")
+        k = self.k
         p = self._p(code, self.clock.now().strftime("%H%M"))
-        return Quote(code=code, name=self.paths[code][0], price=p, open=10000, high=max(p, 10150), low=9950,
-                     prev_close=10000, change_pct=(p / 10000 - 1) * 100, volume=500000, upper_limit=13000)
+        return Quote(code=code, name=self.paths[code][0], price=p, open=10000 * k, high=max(p, 10150 * k), low=9950 * k,
+                     prev_close=10000 * k, change_pct=(p / (10000 * k) - 1) * 100, volume=500000,
+                     upper_limit=13000 * k)
 
     def index_change(self, market="KOSPI"):
         return 2500.0, 0.5
 
     def daily_bars(self, code, days=30):
-        return [Bar(time=d, date=d, open=10000, high=10300, low=9700, close=10000, volume=1_000_000)
+        k = self.k
+        return [Bar(time=d, date=d, open=10000 * k, high=10300 * k, low=9700 * k, close=10000 * k, volume=1_000_000)
                 for d in trading_days(days)]
 
     def minute_bars_today(self, code, until=None):
+        from .strategy import hhmm_add
+        k = self.k
         until = (until or self.clock.now().strftime("%H%M%S"))[:4]
+        or_end = hhmm_add(self.open_, 5)
         out, prev = [], None
-        for i, t in enumerate(minute_grid("0900", "1530")):
+        for i, t in enumerate(minute_grid(self.open_, self.close_)):
             if t > until:
                 break
-            if t < "0905":
-                o = 10000 + i * 20
-                out.append(Bar(time=t, date=today(), open=o, high=o + 70 if i == 4 else o + 30, low=o - 10,
-                               close=o + 20, volume=40_000))
-                prev = o + 20
+            if t < or_end:
+                o = (10000 + i * 20) * k
+                out.append(Bar(time=t, date=today(), open=o, high=o + (70 if i == 4 else 30) * k, low=o - 10 * k,
+                               close=o + 20 * k, volume=40_000))
+                prev = o + 20 * k
             else:
                 p = self._p(code, t)
                 o = prev if prev else p
-                out.append(Bar(time=t, date=today(), open=o, high=max(o, p) + 5, low=min(o, p) - 5, close=p,
+                out.append(Bar(time=t, date=today(), open=o, high=max(o, p) + 5 * k, low=min(o, p) - 5 * k, close=p,
                                volume=10_000 + (i * 7919) % 9000))
                 prev = p
         return out
@@ -107,8 +119,8 @@ class FakeKIS:
 
     def minute_bars_past(self, code, date, until="153000"):
         self._c("past")
-        out, p = [], 10000.0
-        for t in minute_grid():
+        out, p = [], 10000.0 * self.k
+        for t in minute_grid(self.open_, self.close_):
             if t > until[:4]:
                 break
             nxt = p * 1.0001
@@ -120,10 +132,10 @@ class FakeKIS:
         return []
 
     def recent_trades(self, code):
-        return [Trade(time="", price=10300 - i * 10, qty=100) for i in range(30)]  # 최신이 앞, 상승 중
+        return [Trade(time="", price=(10300 - i * 10) * self.k, qty=100) for i in range(30)]  # 최신이 앞, 상승 중
 
     def volume_rank(self, kind="increase"):
-        rows = [{"code": c, "name": n, "price": 10100, "change_pct": 1.0, "volume": 1, "avg_volume": 1}
+        rows = [{"code": c, "name": n, "price": 10100 * self.k, "change_pct": 1.0, "volume": 1, "avg_volume": 1}
                 for c, (n, _) in self.paths.items()]
         return rows + [{"code": "999999", "name": "KODEX 레버리지", "price": 10000, "change_pct": 1.0, "volume": 1,
                         "avg_volume": 1}]

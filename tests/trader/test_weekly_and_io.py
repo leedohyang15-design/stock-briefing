@@ -258,7 +258,7 @@ def test_launcher_paper_default_and_live_confirmation(monkeypatch):
         def run(self, cash):
             calls["cash"] = cash
 
-    def fake_build(dry_run, paper_cash):
+    def fake_build(dry_run, paper_cash, **kw):
         calls["dry_run"] = dry_run
         return FakeTrader()
     monkeypatch.setattr("src.trader.run_day.build", fake_build)

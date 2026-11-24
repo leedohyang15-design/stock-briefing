@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import base64
 import hmac
 import json
@@ -26,7 +27,7 @@ from ..models import now_kst
 HERE = Path(__file__).resolve().parent
 
 
-def build_state(j: Journal, now=None) -> Dict[str, Any]:
+def build_state(j: Journal, now=None, mkt: str = "kr") -> Dict[str, Any]:
     now = now or now_kst()
     today = now.strftime("%Y%m%d")
     iso_today = now.strftime("%Y-%m-%d")
@@ -37,7 +38,7 @@ def build_state(j: Journal, now=None) -> Dict[str, Any]:
     if str(phase.get("ts", ""))[:10] != iso_today:
         phase = {}
     hb = (j.get_snapshot("heartbeat", {}) or {}).get("ts")
-    key = narrator.current_phase(phase, now)
+    key = narrator.current_phase(phase, now, mkt)
     prog = j.get_snapshot("progress", {}) or {}
     progress = prog.get("text", "") if str(prog.get("ts", ""))[:10] == iso_today else ""
     alive = narrator.is_alive(key, narrator.heartbeat_age(hb, now))
@@ -62,9 +63,9 @@ def build_state(j: Journal, now=None) -> Dict[str, Any]:
         e["line"] = narrator.event_text(e["kind"], e["text"])
     return {
         "now": now.isoformat(timespec="seconds"),
-        "phase": {"key": key, "history": phase.get("history", {}), "steps": narrator.PHASES},
+        "phase": {"key": key, "history": phase.get("history", {}), "steps": narrator.phases(mkt)},
         "alive": alive,
-        "banner": narrator.now_text(key, alive, status, inplay, now, progress),
+        "banner": narrator.now_text(key, alive, status, inplay, now, progress, mkt),
         "status": status,
         "premarket": pre,
         "inplay": inplay,
@@ -85,7 +86,14 @@ def build_week(j: Journal) -> Dict[str, Any]:
     }
 
 
-def make_handler(j: Journal, password: Optional[str] = None):
+def make_handler(journals: Dict[str, Journal], password: Optional[str] = None):
+    from .. import market as mk
+
+    def pick(q):
+        key = (q.get("m") or ["kr"])[0]
+        key = key if key in journals else next(iter(journals))
+        return key, journals[key], dt.datetime.now(mk.MARKETS[key].tz)
+
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *a):  # 콘솔 조용히
             pass
@@ -135,20 +143,28 @@ def make_handler(j: Journal, password: Optional[str] = None):
                     self._send(200, (HERE / "vendor" / "lightweight-charts.standalone.production.js").read_bytes(),
                                "application/javascript; charset=utf-8")
                 elif u.path == "/api/state":
-                    self._json(build_state(j))
+                    key, j, now = pick(parse_qs(u.query))
+                    st = build_state(j, now, key)
+                    m = mk.MARKETS[key]
+                    st["market"] = {"key": key, "name": m.name, "currency": m.currency,
+                                    "available": list(journals)}
+                    self._json(st)
                 elif u.path == "/api/bars":
                     q = parse_qs(u.query)
+                    _, j, now = pick(q)
                     code = (q.get("code") or [""])[0]
-                    date = (q.get("date") or [now_kst().strftime("%Y%m%d")])[0]
+                    date = (q.get("date") or [now.strftime("%Y%m%d")])[0]
                     self._json([b.__dict__ for b in j.bars(code, date)])
                 elif u.path == "/api/week":
+                    _, j, _ = pick(parse_qs(u.query))
                     self._json(build_week(j))
                 elif u.path == "/download/trader.db":
+                    key, j, _ = pick(parse_qs(u.query))
                     with j.lock:
                         data = j.conn.serialize()   # 쓰는 중이어도 일관된 스냅샷
                     self.send_response(200)
                     self.send_header("Content-Type", "application/octet-stream")
-                    self.send_header("Content-Disposition", f'attachment; filename="trader_{now_kst():%Y%m%d}.db"')
+                    self.send_header("Content-Disposition", f'attachment; filename="trader_{key}_{now_kst():%Y%m%d}.db"')
                     self.send_header("Content-Length", str(len(data)))
                     self.end_headers()
                     self.wfile.write(data)
@@ -163,14 +179,17 @@ def make_handler(j: Journal, password: Optional[str] = None):
 
 
 def serve(journal: Optional[Journal] = None, port: int = 8501, lan: bool = False, block: bool = True,
-          host: Optional[str] = None, password: Optional[str] = None):
-    j = journal or Journal()
+          host: Optional[str] = None, password: Optional[str] = None, journals: Optional[Dict[str, Journal]] = None):
+    """journal 하나만 주면 그 DB(국장 화면)만, 아니면 국장·미장 DB 를 모두 보여준다."""
+    from .. import market as mk
+    if journals is None:
+        journals = {"kr": journal} if journal else {m.key: Journal(m.db_path) for m in mk.all_markets()}
     if password is None:
         password = os.getenv("DASHBOARD_PASSWORD", "").strip() or None
     host = host or ("0.0.0.0" if lan else "127.0.0.1")
     if host not in ("127.0.0.1", "localhost") and not password:
         print("⚠️ 외부 접속을 열었는데 DASHBOARD_PASSWORD 가 없습니다. 누구나 대시보드를 볼 수 있습니다.")
-    httpd = ThreadingHTTPServer((host, port), make_handler(j, password))
+    httpd = ThreadingHTTPServer((host, port), make_handler(journals, password))
     if block:
         httpd.serve_forever()
     else:
@@ -190,7 +209,7 @@ def main() -> None:
         from ..demo import DEMO_DB
         j = Journal(DEMO_DB)
     else:
-        j = Journal()
+        j = None   # 국장·미장 DB 모두
     url = f"http://localhost:{args.port}"
     where = f"이 서버의 공인 IP:{args.port}" if args.host and args.host not in ("127.0.0.1", "localhost") else url
     print(f"대시보드: {where}  (끄려면 Ctrl+C)")

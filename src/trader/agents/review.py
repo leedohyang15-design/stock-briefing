@@ -17,7 +17,7 @@ from .. import backtest
 from ..journal import Journal
 from ..models import AgentResult, now_kst
 from ..settings import Settings
-from ..ticks import cost_pct
+from ..ticks import cost_pct, fmt_signed
 
 
 # ── 일일 ────────────────────────────────────────────
@@ -32,7 +32,7 @@ def daily_review(journal: Journal, llm, date: str, start_equity: float, mode: st
     rej = journal.query("SELECT agent, COUNT(*) n FROM agent_results WHERE date=? AND decision='reject' "
                         "AND signal_id IS NOT NULL GROUP BY agent ORDER BY n DESC", (date,))
     lines = [f"[일일 리포트 {date}] ({'드라이런' if mode == 'paper' else '실계좌'})",
-             f"일 수익률 {ret:+.2f}% ({net:+,.0f}원) · {len(trades)}건 {wins}승 {losses}패",
+             f"일 수익률 {ret:+.2f}% ({fmt_signed(net)}) · {len(trades)}건 {wins}승 {losses}패",
              "신호: " + ", ".join(f"{r['status']} {r['n']}" for r in sigs) if sigs else "신호 없음"]
     if rej:
         lines.append("거부 많이 한 에이전트: " + ", ".join(f"{r['agent']} {r['n']}" for r in rej[:4]))
@@ -43,7 +43,7 @@ def daily_review(journal: Journal, llm, date: str, start_equity: float, mode: st
         lines.append(f"👻 그림자 거래 {len(sh)}건 (거부된 신호를 샀다면): 평균 {avg:+.2f}% · 거부가 옳았던 건 {saved}/{len(sh)}")
     for t in trades:
         lines.append(f" - {t['name']} {t['qty']}주 {t['entry_price']:,.0f}→{t['exit_price']:,.0f} "
-                     f"{t['exit_reason']} {t['net_pnl']:+,.0f}원")
+                     f"{t['exit_reason']} {fmt_signed(t['net_pnl'])}")
     if llm.available and trades:
         out = llm.json("너는 단타팀 복기 담당이다. 사실만 짧게 정리한다.",
                        "\n".join(lines) + '\n\n오늘 매매에서 배울 점 1~2개. 형식: {"lessons": ["..."]}', 300)

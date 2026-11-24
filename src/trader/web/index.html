@@ -115,7 +115,10 @@ table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:6px;borde
     <span class="pill" id="mode">불러오는 중</span>
     <span class="small muted" id="sub"></span>
   </div>
-  <nav class="tabs" aria-label="화면"><button class="btn on" id="tToday">오늘</button><button class="btn" id="tWeek">주간 복기</button></nav>
+  <div style="display:flex;gap:10px;flex-wrap:wrap">
+    <nav class="tabs" aria-label="시장"><button class="btn" id="mKR">🇰🇷 국장</button><button class="btn" id="mUS">🇺🇸 미장</button></nav>
+    <nav class="tabs" aria-label="화면"><button class="btn on" id="tToday">오늘</button><button class="btn" id="tWeek">주간 복기</button></nav>
+  </div>
 </header>
 
 <div id="today" style="display:flex;flex-direction:column;gap:16px">
@@ -163,7 +166,8 @@ table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:6px;borde
 <script>
 const $=id=>document.getElementById(id);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const won=n=>Math.round(n||0).toLocaleString('ko-KR');
+let M=(new URLSearchParams(location.search).get('m'))||(()=>{try{return localStorage.getItem('mkt')}catch(e){return null}})()||'kr';
+const won=n=>M==='us'?'$'+(n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}):Math.round(n||0).toLocaleString('ko-KR');
 const pct=(n,d=2)=>(n>0?'+':'')+(n||0).toFixed(d)+'%';
 const cls=n=>n>0?'up':(n<0?'down':'muted');
 const cache={};const put=(id,html)=>{if(cache[id]!==html){cache[id]=html;$(id).innerHTML=html}};
@@ -214,6 +218,9 @@ function buildScene(){
 function fitScene(){const w=$('sceneWrap').clientWidth, k=w/1400;$('scene').style.transform=`scale(${k})`;$('sceneWrap').style.height=(560*k)+'px'}
 window.addEventListener('resize',fitScene);
 
+function setMarket(k){M=k;try{localStorage.setItem('mkt',k)}catch(e){}$('mKR').classList.toggle('on',k==='kr');$('mUS').classList.toggle('on',k==='us');
+  sel=null;lastBarsKey='';lastResultId=0;talk={};for(const key in cache) delete cache[key];if(chart){chart.remove();chart=null;cs=null;vs=null;lines=[]}tick();if($('week').style.display!=='none') loadWeek()}
+$('mKR').onclick=()=>setMarket('kr');$('mUS').onclick=()=>setMarket('us');
 $('tToday').onclick=()=>{$('tToday').classList.add('on');$('tWeek').classList.remove('on');$('today').style.display='flex';$('week').style.display='none';fitScene()};
 $('tWeek').onclick=()=>{$('tWeek').classList.add('on');$('tToday').classList.remove('on');$('today').style.display='none';$('week').style.display='flex';loadWeek()};
 $('sStock').onclick=()=>{feedMode='stock';$('sStock').classList.add('on');$('sPre').classList.remove('on');renderFeed()};
@@ -249,7 +256,7 @@ function renderBoard(){
   const st=S.status||{};const live=st.mode==='live';
   $('mode').textContent=S.alive?(live?'실계좌':'모의투자 (실제 주문 없음)'):'꺼짐';
   $('mode').style.cssText=S.alive?(live?'background:#ff6b6b;color:#fff':'background:#a7f070;color:#1a1c2c'):'background:#555;color:#ccc';
-  $('sub').textContent=`${S.now.slice(0,10)} · 3초마다 갱신`;$('clock').textContent=S.now.slice(11,16);
+  $('sub').textContent=`${S.now.slice(0,10)} ${M==='us'?'뉴욕 시각':'한국 시각'} · 3초마다 갱신`;$('clock').textContent=S.now.slice(11,16);
   $('bNow').textContent=S.banner.now;$('bNext').textContent='다음 → '+S.banner.next;
   const order=S.phase.steps.map(s=>s[0]), curI=S.phase.key==='ready'?1:order.indexOf(S.phase.key), h=S.phase.history||{};
   put('steps',S.phase.steps.map(([k,t,tm],i)=>{const c=i<curI||S.phase.key==='done'?'done':(i===curI?'cur':'');return `<div class="note ${c}">${c==='done'?'✓ ':''}${t}<br><span style="font-size:10px">${h[k]?h[k].slice(11,16):tm}</span></div>`}).join(''));
@@ -268,11 +275,11 @@ function renderStocks(){
     return `<button class="stock ${i.code===sel?'sel':''}" data-c="${i.code}"><div class="row"><b>${esc(i.name)}</b>${chipOf(i)}</div>
      <div class="row small"><span>${won(i.price)} <span class="${cls(i.change_pct)}">${pct(i.change_pct)}</span> · 거래량 ${(i.relvol||0).toFixed(1)}배${i.relvol_measured?'':'(추정)'}${pos}</span><span class="${p>hi?'up':'muted'}">${toB}</span></div>
      <div class="orb"><span class="rng" style="left:${(lo-mn)/w*100}%;width:${span/w*100}%"></span><span class="px" style="left:calc(${(p-mn)/w*100}% - 2px)"></span></div>
-     ${i.note?`<div class="small muted">${esc(i.note)}</div>`:''}</button>`}).join(''):'<div class="empty">09:05 이후 거래량이 몰린 종목을 여기에 보여줘요.</div>');
+     ${i.note?`<div class="small muted">${esc(i.note)}</div>`:''}</button>`}).join(''):`<div class="empty">${S.phase.steps[1][2]} 이후 거래량이 몰린 종목을 여기에 보여줘요.</div>`);
   document.querySelectorAll('.stock').forEach(b=>b.onclick=()=>{sel=b.dataset.c;cache.stocks='';renderAll(true)});
   const s=S.status||{}, idx=s.index||{}, pre=S.premarket||{};
-  put('market',`<div class="row small"><span>코스피 (실시간)</span><span class="${cls(idx.KOSPI)}">${idx.KOSPI!=null?pct(idx.KOSPI):'-'}</span></div>
-   <div class="row small"><span>코스닥 (실시간)</span><span class="${cls(idx.KOSDAQ)}">${idx.KOSDAQ!=null?pct(idx.KOSDAQ):'-'}</span></div>
+  const NM={KOSPI:'코스피',KOSDAQ:'코스닥'};
+  put('market',Object.entries(idx).map(([k,v])=>`<div class="row small"><span>${esc(NM[k]||k)} (실시간)</span><span class="${cls(v)}">${pct(v)}</span></div>`).join('')+`
    <div class="small muted" style="margin-top:6px">${(pre.market_lines||[]).slice(0,6).map(esc).join('<br>')||'장전 분석 후 표시돼요'}</div>`);
 }
 function initChart(){
@@ -280,7 +287,7 @@ function initChart(){
   chart=LightweightCharts.createChart($('chart'),{autoSize:true,layout:{background:{color:'#1a1c2c'},textColor:'#94b0c2',fontFamily:'Galmuri11'},
     grid:{vertLines:{color:'#262b44'},horzLines:{color:'#262b44'}},rightPriceScale:{borderColor:'#566c86'},
     timeScale:{borderColor:'#566c86',timeVisible:true,secondsVisible:false},crosshair:{mode:0},
-    localization:{priceFormatter:p=>Math.round(p).toLocaleString('ko-KR'),timeFormatter:t=>{const d=new Date(t*1000);return String(d.getUTCHours()).padStart(2,'0')+':'+String(d.getUTCMinutes()).padStart(2,'0')}}});
+    localization:{priceFormatter:p=>M==='us'?p.toFixed(2):Math.round(p).toLocaleString('ko-KR'),timeFormatter:t=>{const d=new Date(t*1000);return String(d.getUTCHours()).padStart(2,'0')+':'+String(d.getUTCMinutes()).padStart(2,'0')}}});
   cs=chart.addCandlestickSeries({upColor:'#ff6b6b',downColor:'#41a6f6',borderVisible:false,wickUpColor:'#ff6b6b',wickDownColor:'#41a6f6'});
   cs.priceScale().applyOptions({scaleMargins:{top:0.08,bottom:0.26}});
   vs=chart.addHistogramSeries({priceFormat:{type:'volume'},priceScaleId:'',lastValueVisible:false,priceLineVisible:false});
@@ -294,7 +301,7 @@ async function renderChart(force){
   $('cInfo').innerHTML=ip?`현재가 ${won(ip.price)} <span class="${cls(ip.change_pct)}">${pct(ip.change_pct)}</span> · 시가범위 ${won(ip.or_low)}~${won(ip.or_high)}`:'관심종목이 정해지면 켜져요';
   if(!sel){cs.setData([]);vs.setData([]);return}
   const key=sel+'|'+Math.floor(Date.now()/10000);if(!force&&key===lastBarsKey) return;lastBarsKey=key;
-  const bars=await (await fetch('/api/bars?code='+sel)).json();
+  const bars=await (await fetch(`/api/bars?m=${M}&code=`+encodeURIComponent(sel))).json();
   cs.setData(bars.map(b=>({time:T(b.date,b.time),open:b.open,high:b.high,low:b.low,close:b.close})));
   vs.setData(bars.map(b=>({time:T(b.date,b.time),value:b.volume,color:b.close>=b.open?'rgba(255,107,107,.4)':'rgba(65,166,246,.4)'})));
   lines.forEach(l=>cs.removePriceLine(l));lines=[];
@@ -349,9 +356,9 @@ function renderFeed(){
 }
 function renderEvents(){put('events',(S.events||[]).length?S.events.map(e=>`<div class="ev"><span class="t">${e.ts.slice(11,19)}</span><span>${esc(e.line)}</span></div>`).join(''):'<div class="empty">아직 기록이 없어요.</div>')}
 function renderAll(force){renderBoard();renderStocks();renderAgents();renderChart(force);renderFlow();renderFeed();renderEvents()}
-async function tick(){try{const prev=sel;S=await (await fetch('/api/state')).json();renderAll(prev!==sel||!lastBarsKey)}catch(e){$('bNow').textContent='대시보드 서버와 연결이 끊겼어요. 트레이더 창이 켜져 있는지 확인해 주세요.'}}
+async function tick(){try{const prev=sel;S=await (await fetch('/api/state?m='+M)).json();renderAll(prev!==sel||!lastBarsKey)}catch(e){$('bNow').textContent='대시보드 서버와 연결이 끊겼어요. 트레이더 창이 켜져 있는지 확인해 주세요.'}}
 async function loadWeek(){
-  const W=await (await fetch('/api/week')).json();const r=W.report||{},m=r.metrics||{};const days=W.days||[];const mx=Math.max(1,...days.map(d=>Math.abs(d.ret_pct||0)));const sc=r.scorecard||[];
+  const W=await (await fetch('/api/week?m='+M)).json();const r=W.report||{},m=r.metrics||{};const days=W.days||[];const mx=Math.max(1,...days.map(d=>Math.abs(d.ret_pct||0)));const sc=r.scorecard||[];
   $('week').innerHTML=`<section class="px"><h2>이번 주 성적</h2><div class="row" style="flex-wrap:wrap;gap:24px">
     <div><div class="small muted">누적 수익률</div><div style="font-size:26px" class="${cls(m.cum_ret_pct)}">${pct(m.cum_ret_pct)}</div></div>
     <div><div class="small muted">승률 (${m.trades||0}건)</div><div style="font-size:22px">${m.trades?(m.win_rate||0).toFixed(0)+'%':'-'}</div></div>
@@ -363,7 +370,7 @@ async function loadWeek(){
   <section class="px"><h2>다음 주 설정 변경안</h2>${(W.proposals||[]).map(p=>`<div class="ev"><span><b>${p.id}번</b> · ${esc(p.status)} · ${esc(p.changes)}<br><span class="small muted">텔레그램 /apply ${p.id} 또는 /hold ${p.id}</span></span></div>`).join('')||'<div class="empty">변경안 없음</div>'}</section>
   ${(r.panel||[]).length?`<section class="px"><h2>투자 대가 패널 (참고용)</h2>${r.panel.map(x=>`<div class="ev"><span><b>${esc(x.name)}</b> ${esc(x.view)}</span></div>`).join('')}</section>`:''}`;
 }
-buildScene();tick();setInterval(tick,3000);setInterval(()=>{if(S) renderAgents()},1000);
+buildScene();$('mKR').classList.toggle('on',M==='kr');$('mUS').classList.toggle('on',M==='us');tick();setInterval(tick,3000);setInterval(()=>{if(S) renderAgents()},1000);
 </script>
 </body>
 </html>

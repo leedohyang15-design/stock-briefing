@@ -6,7 +6,7 @@ from typing import Dict, Set
 
 from . import strategy as st
 from .models import AgentResult
-from .ticks import add_ticks
+from .ticks import add_ticks, fmt_px
 
 
 @dataclass
@@ -70,9 +70,9 @@ def evaluate(code: str, price: float, stop: float, now_hhmm: str, state: DayStat
     qty = st.position_size(equity, risk.get("risk_per_trade_pct", 1.0), limit, stop,
                            risk.get("max_order_krw", 100000), state.cash)
     if qty <= 0:
-        return no(f"수량 0 (1회 한도 {risk.get('max_order_krw'):,}원 / 예수금 {state.cash:,.0f}원으로 1주도 못 삼)")
+        return no(f"수량 0 (1회 한도 {fmt_px(risk.get('max_order_krw'))} / 예수금 {fmt_px(state.cash)}으로 1주도 못 삼)")
     loss_at_stop = (limit - stop) * qty
     return AgentResult(15, "리스크 매니저", "pass",
-                       f"{qty}주 × {limit:,}원 = {qty * limit:,}원 · 손절 시 -{loss_at_stop:,.0f}원 "
+                       f"{qty}주 × {fmt_px(limit)} = {fmt_px(qty * limit)} · 손절 시 -{fmt_px(loss_at_stop)} "
                        f"({loss_at_stop / equity * 100:.2f}%)",
                        {"qty": qty, "limit_price": limit, "loss_at_stop": loss_at_stop})

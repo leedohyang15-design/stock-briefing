@@ -16,7 +16,8 @@ from typing import Callable, Dict, List, Optional
 from . import datalog
 from . import strategy as st
 from .agents import intraday, timemachine
-from .agents.premarket import PremarketReport, default_inputs, run_premarket
+from . import market as mk
+from .agents.premarket import PremarketReport, default_inputs, default_inputs_us, run_premarket
 from .agents.review import daily_review
 from .broker import LiveBroker, PaperBroker
 from .executor import Executor
@@ -26,10 +27,11 @@ from .models import AgentResult, Candidate, Position, Quote, Signal, now_kst
 from .risk import DayState, check_loss_limit, evaluate, max_entries
 from .settings import Settings
 from .telegram_bot import AutoApprove, NullTelegram, Telegram
-from .ticks import add_ticks, cost_pct
+from .ticks import add_ticks, cost_pct, fmt_px, fmt_signed
 
 _ETF_WORDS = ("KODEX", "TIGER", "KBSTAR", "ACE ", "SOL ", "HANARO", "ARIRANG", "KOSEF", "RISE ", "PLUS ", "ETN",
-              "인버스", "레버리지", "선물", "TIMEFOLIO", "KoAct", "WON ")
+              "인버스", "레버리지", "선물", "TIMEFOLIO", "KoAct", "WON ",
+              " ETF", "ETF ", "2X", "3X", "Ultra", "ProShares", "Direxion", "iShares", "SPDR", "Leveraged", "Inverse")
 TRANSIENT = {11, 13, 14, 15}      # 시간이 지나면 바뀔 수 있는 거부 → 잠시 후 재검사
 RECHECK_SEC = 60
 MAX_SIGNALS_PER_CODE = 3
@@ -67,7 +69,8 @@ class DayTrader:
         self.inplay: Dict[str, intraday.InPlay] = {}
         self.codes: Dict[str, CodeState] = {}
         self.quotes: Dict[str, Quote] = {}
-        self.index = {"KOSPI": 0.0, "KOSDAQ": 0.0}
+        self.market = mk.CURRENT
+        self.index = {label: 0.0 for _, label in self.market.indices}
         self.first30: Optional[float] = None
         self.regime: Optional[AgentResult] = None
         self._last_index = 0.0
@@ -124,7 +127,7 @@ class DayTrader:
             return "아직 시작 전입니다."
         s = self.state
         pos = ", ".join(f"{p.name} {p.qty}주 @{p.avg_price:,.0f} (손절 {p.stop:,.0f})" for p in self.ex.positions.values()) or "없음"
-        return (f"[{self.broker.mode}] 일 수익률 {s.ret_pct:+.2f}% ({s.pnl:+,.0f}원)\n매수 {s.entries}/"
+        return (f"[{self.broker.mode}] 일 수익률 {s.ret_pct:+.2f}% ({fmt_signed(s.pnl)})\n매수 {s.entries}/"
                 f"{max_entries(self.s.risk, s.aggression)}회 · 보유: {pos}\n"
                 f"상태: {'중단 - ' + s.stop_reason if s.stopped else '운영 중'}")
 
@@ -137,7 +140,8 @@ class DayTrader:
     def premarket(self) -> PremarketReport:
         self.j.event("정보", "장전 분석팀 실행 시작 (에이전트 1~8)")
         self.progress("장전 회의 중: 시장·뉴스·공시를 보고 관심종목을 고르고 있어요 (1~2분)")
-        rep = run_premarket(self.llm, self.inputs or default_inputs(self.kis), self.s.news.get("reject_keywords", []))
+        inputs = self.inputs or (default_inputs_us(self.kis) if self.market.key == "us" else default_inputs(self.kis))
+        rep = run_premarket(self.llm, inputs, self.s.news.get("reject_keywords", []))
         for r in rep.results:
             self.j.agent_result(r)
         self.report = rep
@@ -184,7 +188,7 @@ class DayTrader:
 
     def scan(self) -> None:
         cfg = self.s.strategy
-        or_end = st.hhmm_add("0900", cfg["orb_minutes"])
+        or_end = st.hhmm_add(self.market.open, cfg["orb_minutes"])
         cands = self.candidates()
         or_bars, daily = {}, {}
         for c in cands:
@@ -221,13 +225,14 @@ class DayTrader:
         t = self.now().timestamp()
         if t - self._last_index > 30:
             self._last_index = t
-            for m in ("KOSPI", "KOSDAQ"):
+            for code, label in self.market.indices:
                 try:
-                    self.index[m] = self.kis.index_change(m)[1]
+                    self.index[label] = self.kis.index_change(code)[1]
                 except Exception as e:  # noqa: BLE001
-                    print(f"[index] {m} 실패: {e}")
-            avg = (self.index["KOSPI"] + self.index["KOSDAQ"]) / 2
-            self.regime = intraday.regime_check(avg, self.s.strategy["regime_block_below_pct"])
+                    print(f"[index] {code} 실패: {e}")
+            avg = sum(self.index.values()) / max(1, len(self.index))
+            self.regime = intraday.regime_check(avg, self.s.strategy["regime_block_below_pct"],
+                                                "·".join(label for _, label in self.market.indices))
             blocked = self.regime.blocks
             if blocked != self._regime_blocked:
                 self._regime_blocked = blocked
@@ -275,7 +280,8 @@ class DayTrader:
         steps = [
             lambda: self.regime or AgentResult(13, "시장 분위기", "pass", "지수 데이터 대기"),
             lambda: intraday.vi_check(q, ip.rng.open, cfg["static_vi_pct"], cfg["vi_guard_pct"]),
-            lambda: intraday.imbalance_check(self.kis.recent_trades(ip.code), cfg["imbalance_trades"], cfg["imbalance_min"]),
+            lambda: intraday.imbalance_check(self.kis.recent_trades(ip.code), cfg["imbalance_trades"], cfg["imbalance_min"],
+                                            cfg.get("imbalance_require_data", True)),
             lambda: evaluate(ip.code, q.price, stop, self.hhmm(), self.state, risk),
             lambda: timemachine.check(self._history(ip.code), self.hhmm(), _hhmm(risk.get("flatten_time", "15:15")),
                                       limit, stop, ip.atr, self.s.timemachine, cfg, self.cost_pct),
@@ -317,8 +323,8 @@ class DayTrader:
         cs.status, cs.pending = "pending", {"qty": qty, "limit": lim, "stop": stop}
         bull = (self.report.bull.get(ip.code, "") if self.report else "")
         bear = (self.report.bear.get(ip.code, "") if self.report else "")
-        msg = (f"[매수 승인 요청] {ip.name} ({ip.code})\n{qty}주 × {lim:,}원 = {qty * lim:,}원\n"
-               f"손절 {stop:,.0f}원 · 15:15 자동 청산\n상대거래량 {ip.relvol:.1f}배 · 시가범위 {ip.rng.low:,.0f}~{ip.rng.high:,.0f}\n"
+        msg = (f"[매수 승인 요청] {ip.name} ({ip.code})\n{qty}주 × {fmt_px(lim)} = {fmt_px(qty * lim)}\n"
+               f"손절 {fmt_px(stop)} · 장 마감 전 자동 청산\n상대거래량 {ip.relvol:.1f}배 · 시가범위 {ip.rng.low:,.0f}~{ip.rng.high:,.0f}\n"
                f"타임머신: {tm.reason if tm else '-'}\n강세: {bull or '-'}\n약세: {bear or '-'}\n"
                f"{self.s.approval.get('timeout_sec', 180) // 60}분 안에 응답이 없으면 취소됩니다.")
         self.tg.request_approval(sid, msg)
@@ -385,7 +391,7 @@ class DayTrader:
         filled = self.ex.enter(code, ip.name, min(p["qty"], r.data["qty"]), p["limit"], p["stop"], cs.sid)
         cs.status = "done"
         self.j.agent_result(AgentResult(16, "주문 실행·청산", "pass" if filled else "wait",
-                                        f"지정가 {p['limit']:,}원 {filled}주 체결 · 손절 {p['stop']:,.0f} · 15:15 청산"
+                                        f"지정가 {fmt_px(p['limit'])} {filled}주 체결 · 손절 {p['stop']:,.0f} · 장 마감 전 청산"
                                         if filled else "미체결 → 주문 취소"), code, cs.sid)
         self.j.update_signal(cs.sid, "filled" if filled else "unfilled", f"{filled}주 체결" if filled else "미체결")
         if filled:
@@ -462,8 +468,8 @@ class DayTrader:
                 self.state.start_equity = paper_cash
             else:
                 self.state.start_equity = (total - realized) or total  # 보유 평가손익은 근사적으로 무시
-            self.j.event("정보", f"장중 재시작 복원: 오늘 거래 {len(today_trades)}건, 실현 {realized:+,.0f}원, 보유 {len(held)}종목")
-        self.j.event("정보", f"[{self.broker.mode}] 시작 · 평가금 {self.state.start_equity:,.0f}원 · 예수금 {cash:,.0f}원")
+            self.j.event("정보", f"장중 재시작 복원: 오늘 거래 {len(today_trades)}건, 실현 {fmt_signed(realized)}, 보유 {len(held)}종목")
+        self.j.event("정보", f"[{self.broker.mode}] 시작 · 평가금 {fmt_px(self.state.start_equity)} · 예수금 {fmt_px(cash)}")
 
     def _restore_stop(self, p: Position) -> float:
         a = st.atr(datalog.ensure_daily(self.kis, self.j, p.code, 30)) or p.avg_price * 0.05
@@ -473,7 +479,7 @@ class DayTrader:
         sch, risk, cfg = self.s.schedule, self.s.risk, self.s.strategy
         self.tg.start()
         self.start(paper_cash)
-        self.tg.send(f"[{'드라이런' if self.broker.mode == 'paper' else '실계좌'}] 트레이더 시작 · 평가금 {self.state.start_equity:,.0f}원")
+        self.tg.send(f"[{'드라이런' if self.broker.mode == 'paper' else '실계좌'}] 트레이더 시작 · 평가금 {fmt_px(self.state.start_equity)}")
         self.set_phase("waiting")
         self.snapshot()
         flatten = _hhmm(risk.get("flatten_time", "15:15"))
@@ -492,9 +498,9 @@ class DayTrader:
             self.set_phase("premarket")
             self.premarket()
             self.set_phase("ready")
-        self.wait_until("0900")
+        self.wait_until(self.market.open)
         self.set_phase("scan")
-        scan_at = st.hhmm_add("0900", cfg["orb_minutes"])
+        scan_at = st.hhmm_add(self.market.open, cfg["orb_minutes"])
         self.wait_until(scan_at)
         self.sleep(10)
         if self.hhmm() < flatten:
@@ -524,11 +530,35 @@ class DayTrader:
         self.tg.stop()
 
 
-def build(dry_run: bool, settings: Optional[Settings] = None, paper_cash: float = 1_000_000.0):
+class PrefixTelegram:
+    """미장 알림 앞에 [미장] 을 붙인다."""
+
+    def __init__(self, inner, prefix: str):
+        self.inner, self.prefix = inner, prefix
+        self.enabled = getattr(inner, "enabled", False)
+
+    def send(self, text):
+        return self.inner.send(self.prefix + text)
+
+    def request_approval(self, sid, text):
+        return self.inner.request_approval(sid, self.prefix + text)
+
+    def __getattr__(self, name):
+        return getattr(self.inner, name)
+
+
+def build(dry_run: bool, settings: Optional[Settings] = None, paper_cash: float = 1_000_000.0,
+          market_key: Optional[str] = None):
     from .kis_client import KISClient
-    s = settings or Settings.load()
+    m = mk.activate(market_key) if market_key else mk.CURRENT
+    s = settings or Settings.load(m.config_path)
     kis = KISClient(s)
-    j = Journal()
+    if m.key == "us":
+        from .kis_overseas import KISOverseas
+        kis = KISOverseas(kis)
+        if not dry_run:
+            raise SystemExit("미장은 아직 모의투자만 지원합니다 (--dry-run / 모의투자 모드로 실행하세요).")
+    j = Journal(m.db_path)
     sec = s.secrets
     if dry_run:
         broker = PaperBroker(lambda c: kis.quote(c).price, cash=paper_cash,
@@ -541,6 +571,8 @@ def build(dry_run: bool, settings: Optional[Settings] = None, paper_cash: float 
             raise SystemExit("실계좌는 텔레그램 승인이 필수입니다 (.env 의 TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID, approval.mode: telegram)")
         broker = LiveBroker(kis)
         tg = Telegram(sec.telegram_token, sec.telegram_chat_id)
+    if m.tg_prefix:
+        tg = PrefixTelegram(tg, m.tg_prefix)
     return DayTrader(s, kis, broker, j, get_llm(), tg)
 
 
@@ -548,13 +580,15 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="AI 멀티에이전트 단타 트레이더")
     ap.add_argument("--dry-run", action="store_true", help="실제 시세 + 가상 주문")
     ap.add_argument("--force", action="store_true", help="휴장일에도 실행")
-    ap.add_argument("--paper-cash", type=float, default=1_000_000.0, help="드라이런 가상 예수금")
+    ap.add_argument("--market", choices=["kr", "us"], default="kr", help="kr=국장, us=미장(모의투자만)")
+    ap.add_argument("--paper-cash", type=float, default=None, help="모의투자 가상 예수금 (국장 원, 미장 달러)")
     args = ap.parse_args()
-    from ..holidays_kr import is_market_holiday
-    if is_market_holiday(now_kst().date()) and not args.force:
-        print("오늘은 휴장일입니다.")
+    m = mk.activate(args.market)
+    cash = args.paper_cash or (1_000.0 if m.key == "us" else 1_000_000.0)
+    if m.is_holiday(m.today()) and not args.force:
+        print(f"오늘은 {m.name} 휴장일입니다.")
         return
-    build(args.dry_run, paper_cash=args.paper_cash).run(args.paper_cash)
+    build(args.dry_run, paper_cash=cash, market_key=m.key).run(cash)
 
 
 if __name__ == "__main__":
