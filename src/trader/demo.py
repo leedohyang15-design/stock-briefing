@@ -98,8 +98,9 @@ def main(until: str = "1020") -> None:
     llm = FakeLLM([
         {"score": 1, "summary": "나스닥 강세, 원화 강세 (데모)"},
         {"positive": ["반도체"], "negative": [], "summary": "반도체 장비 수혜 기대 (데모)"},
-        {"items": [{"code": "111111", "text": "거래량 급증과 수주 기사 (데모)"}, {"code": "222222", "text": "수출 기대 (데모)"}]},
-        {"items": [{"code": "111111", "text": "전일 급등으로 차익 매물 우려 (데모)"}, {"code": "222222", "text": "증자 우려 (데모)"}]},
+        {"items": [{"code": "111111", "bull": "거래량 급증과 수주 기사 (데모)", "bear": "전일 급등으로 차익 매물 우려 (데모)"},
+                   {"code": "222222", "bull": "수출 기대 (데모)", "bear": "증자 우려 (데모)"},
+                   {"code": "444444", "bull": "전력 설비 수요 (데모)"}]},
         {"watchlist": [{"code": c, "note": "데모 관심종목"} for c in kis.paths], "exclude": [], "aggression": "normal",
          "summary": "반도체 중심 (데모)"},
     ])

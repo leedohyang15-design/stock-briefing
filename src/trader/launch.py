@@ -1,6 +1,6 @@
 """원클릭 실행: 필요한 패키지 확인 → 대시보드(브라우저 자동 열림) + 트레이더를 한 번에.
 
-    python -m src.trader.launch                  # 모의투자 (가상 10만원, 실제 주문 없음)
+    python -m src.trader.launch                  # 모의투자 (가상 30만원, 실제 주문 없음)
     python -m src.trader.launch --paper-cash 300000
     python -m src.trader.launch --live           # 실계좌 (확인 문구 입력 필요)
     python -m src.trader.launch --live --yes     # 실계좌, 작업 스케줄러용 (확인 생략)
@@ -120,7 +120,7 @@ def main(argv=None) -> int:
     ap.add_argument("--live", action="store_true", help="실계좌 (기본은 모의투자)")
     ap.add_argument("--yes", action="store_true", help="실계좌 확인 문구 생략 (작업 스케줄러용)")
     ap.add_argument("--market", choices=["kr", "us"], default="kr", help="kr=국장, us=미장(모의투자만)")
-    ap.add_argument("--paper-cash", type=float, default=None, help="모의투자 가상 예수금 (기본: 국장 10만원, 미장 1,000달러)")
+    ap.add_argument("--paper-cash", type=float, default=None, help="모의투자 가상 예수금 (기본: 국장 30만원, 미장 1,000달러)")
     ap.add_argument("--no-dashboard", action="store_true")
     ap.add_argument("--browser", action="store_true", help="전용 창 대신 브라우저로 화면 열기")
     ap.add_argument("--force", action="store_true", help="휴장일에도 실행 (연결 확인용)")
@@ -134,7 +134,7 @@ def main(argv=None) -> int:
     from . import market as mk
     m = mk.activate(args.market)
     if args.paper_cash is None:
-        args.paper_cash = 1_000.0 if m.key == "us" else 100_000.0
+        args.paper_cash = 1_000.0 if m.key == "us" else 300_000.0
     if m.key == "us" and args.live:
         print("미장은 아직 모의투자만 지원합니다.")
         return 1

@@ -181,17 +181,53 @@ def _brief(results: List[AgentResult], pool: List[Dict[str, Any]]) -> str:
     return "분석가 보고:\n" + "\n".join(lines) + "\n\n후보 종목(전일 거래대금 상위):\n" + plist
 
 
-def agent_debate(llm, brief: str, side: str) -> AgentResult:
-    no, name = (6, "강세론자") if side == "bull" else (7, "약세론자")
-    ask = "오늘 단타로 '살 만한 이유'" if side == "bull" else "오늘 단타로 '사면 안 되는 이유와 위험'"
-    out = llm.json(_sys(name), brief + f"\n\n후보 종목 중 최대 10개에 대해 {ask}를 종목별 한 문장으로 써라. "
-                   '형식: {"items": [{"code": "6자리", "text": "한 문장"}]}', 1200) if llm.available else None
-    items = {}
+def norm_code(code) -> str:
+    """국장 6자리 숫자 코드는 앞을 0으로 채우고, 미장 티커(AAPL 등)는 대문자 그대로."""
+    c = str(code or "").strip()
+    return c.zfill(6) if c.isdigit() else c.upper()
+
+
+def rule_bear(s: Dict[str, Any]) -> str:
+    """LLM 이 약세 근거를 못 냈을 때 데이터로 만드는 최소한의 위험 요인."""
+    chg = s.get("change_pct") or 0.0
+    if chg >= 25:
+        return f"전일 {chg:+.1f}% 급등(상한가권) → 오늘 차익 실현 매물·변동성 위험이 큼 (데이터 기반)"
+    if chg >= 10:
+        return f"전일 {chg:+.1f}% 급등 → 시초가 이후 차익 실현 매물이 나올 수 있음 (데이터 기반)"
+    if chg >= 3:
+        return f"전일 {chg:+.1f}% 상승 → 갭상승 후 밀릴 위험 (데이터 기반)"
+    if chg <= -3:
+        return f"전일 {chg:+.1f}% 하락 → 하락 추세가 이어질 수 있음 (데이터 기반)"
+    return "뚜렷한 재료 없이 거래대금만 많음 → 방향성이 약해 돌파 실패 가능 (데이터 기반)"
+
+
+def agent_debate(llm, brief: str, pool: List[Dict[str, Any]]) -> (AgentResult, AgentResult):
+    """6 강세론자·7 약세론자 토론. 한 번에 종목별 강세·약세를 짧게 받는다 (답이 길어 잘리는 문제 방지).
+    약세론이 비면 데이터 기반 위험 요인으로 채운다 (반대 의견이 없는 토론 방지)."""
+    out = llm.json(_sys("토론 진행자"), brief +
+                   "\n\n후보 종목 중 최대 10개에 대해 강세론자(오늘 단타로 살 이유)와 약세론자(사면 안 되는 이유·위험)의 "
+                   "주장을 각각 40자 이내 한 문장으로 써라. 약세론은 반드시 구체적인 위험을 써라 "
+                   "(예: 전일 급등 후 차익매물, 거래대금 감소, 업종 약세, 공시·뉴스 위험, 고평가). '없음'은 쓰지 마라. "
+                   '형식: {"items": [{"code": "종목코드", "bull": "...", "bear": "..."}]}', 3000) if llm.available else None
+    bull: Dict[str, str] = {}
+    bear: Dict[str, str] = {}
     for it in (out or {}).get("items", []) or []:
         if isinstance(it, dict) and it.get("code"):
-            items[str(it["code"]).zfill(6)] = str(it.get("text", ""))
-    reason = f"{len(items)}종목 의견" if items else "LLM 없음 → 의견 없음"
-    return AgentResult(no, name, "info", reason, {"items": items})
+            c = norm_code(it["code"])
+            if it.get("bull"):
+                bull[c] = str(it["bull"])
+            if it.get("bear") and str(it["bear"]).strip() not in ("-", "없음"):
+                bear[c] = str(it["bear"])
+    filled = 0
+    for p in pool:
+        if p["code"] in bull and p["code"] not in bear:
+            bear[p["code"]] = rule_bear(p)
+            filled += 1
+    r6 = AgentResult(6, "강세론자", "info", f"{len(bull)}종목 의견" if bull else "LLM 없음 → 의견 없음", {"items": bull})
+    r7 = AgentResult(7, "약세론자", "info",
+                     (f"{len(bear)}종목 의견" + (f" (데이터 기반 {filled}개 보충)" if filled else "")) if bear
+                     else "LLM 없음 → 의견 없음", {"items": bear})
+    return r6, r7
 
 
 def agent_pm(llm, brief: str, bull: Dict[str, str], bear: Dict[str, str], pool: List[Dict[str, Any]],
@@ -200,7 +236,7 @@ def agent_pm(llm, brief: str, bull: Dict[str, str], bear: Dict[str, str], pool: 
               json.dumps(bear, ensure_ascii=False) + "\n악재 공시로 제외된 종목:\n" + json.dumps(excluded, ensure_ascii=False) +
               f"\n\n토론을 종합해 오늘 장중에 지켜볼 관심종목을 최대 {max_n}개 고르고, 추가로 피해야 할 종목과 "
               "오늘의 공격성(low/normal/high)을 정하라. 관심종목도 장중 규칙(시가범위 돌파 등)을 통과해야만 매수된다. "
-              '형식: {"watchlist": [{"code": "6자리", "note": "한 문장"}], "exclude": [{"code": "6자리", "reason": "..."}], '
+              '형식: {"watchlist": [{"code": "종목코드", "note": "한 문장"}], "exclude": [{"code": "종목코드", "reason": "..."}], '
               '"aggression": "normal", "summary": "한 문장"}')
     out = llm.json(_sys("수석 트레이더(PM)"), prompt, 1200) if llm.available else None
     names = {s["code"]: s["name"] for s in pool}
@@ -210,12 +246,12 @@ def agent_pm(llm, brief: str, bull: Dict[str, str], bear: Dict[str, str], pool: 
     summary = ""
     if out:
         for it in out.get("watchlist", []) or []:
-            code = str(it.get("code", "")).zfill(6) if isinstance(it, dict) else ""
+            code = norm_code(it.get("code", "")) if isinstance(it, dict) else ""
             if code in names and code not in excluded:
                 wl.append({"code": code, "name": names[code], "note": it.get("note", "")})
         for it in out.get("exclude", []) or []:
             if isinstance(it, dict) and it.get("code"):
-                excl[str(it["code"]).zfill(6)] = str(it.get("reason", "PM 제외"))
+                excl[norm_code(it["code"])] = str(it.get("reason", "PM 제외"))
         aggression = out.get("aggression", "normal") if out.get("aggression") in ("low", "normal", "high") else "normal"
         summary = out.get("summary", "")
     if not wl:
@@ -241,8 +277,7 @@ def run_premarket(llm, inputs: PremarketInputs, reject_keywords: List[str]) -> P
     rep.excluded.update(r3.data.get("flagged", {}))
     base = [r1, r2, r3, r4, r5]
     brief = _brief(base, [s for s in rep.pool if s["code"] not in rep.excluded])
-    r6 = agent_debate(llm, brief, "bull")
-    r7 = agent_debate(llm, brief, "bear")
+    r6, r7 = agent_debate(llm, brief, [p for p in rep.pool if p["code"] not in rep.excluded])
     rep.bull, rep.bear = r6.data["items"], r7.data["items"]
     r8 = agent_pm(llm, brief, rep.bull, rep.bear, rep.pool, rep.excluded)
     rep.excluded.update(r8.data.get("exclude", {}))

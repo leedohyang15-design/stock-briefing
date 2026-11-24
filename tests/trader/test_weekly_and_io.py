@@ -263,7 +263,7 @@ def test_launcher_paper_default_and_live_confirmation(monkeypatch):
         return FakeTrader()
     monkeypatch.setattr("src.trader.run_day.build", fake_build)
     assert launch.main(["--no-dashboard", "--yes"]) == 0
-    assert calls == {"dry_run": True, "cash": 100_000.0}
+    assert calls == {"dry_run": True, "cash": 300_000.0}
     monkeypatch.setattr("builtins.input", lambda prompt="": "아니오")
     calls.clear()
     assert launch.main(["--live", "--no-dashboard"]) == 1 and calls == {}     # 확인 문구 없으면 실계좌 안 켬

@@ -148,11 +148,15 @@ def test_premarket_pm_llm_choice_validated():
     pool = [{"code": "000001", "name": "가", "price": 1, "change_pct": 1.0, "value_krw": 5e10},
             {"code": "000002", "name": "나", "price": 1, "change_pct": 1.0, "value_krw": 4e10}]
     llm = FakeLLM([{"score": 1, "summary": "강세"}, {"positive": [], "negative": [], "summary": "s"},
-                   {"items": [{"code": "000002", "text": "좋음"}]}, {"items": [{"code": "000001", "text": "위험"}]},
+                   {"items": [{"code": "2", "bull": "좋음", "bear": "급등 위험"}, {"code": "000001", "bull": "무난"}]},
                    {"watchlist": [{"code": "000002", "note": "n"}, {"code": "123456", "note": "없는 종목"}],
                     "exclude": [], "aggression": "high", "summary": "s"}])
     inputs = premarket.PremarketInputs(indices=lambda: ["나스닥"], headlines=lambda: ["뉴스"], themes=lambda: [],
                                        pool=lambda: pool, notices=lambda c: [])
     rep = premarket.run_premarket(llm, inputs, [])
     assert [c.code for c in rep.watchlist] == ["000002"] and rep.aggression == "high"
-    assert rep.bull == {"000002": "좋음"} and rep.bear == {"000001": "위험"}
+    assert rep.bull == {"000002": "좋음", "000001": "무난"}
+    assert rep.bear["000002"] == "급등 위험" and "데이터 기반" in rep.bear["000001"]   # 빠진 약세론은 데이터로 보충
+    from src.trader.agents.premarket import norm_code, rule_bear
+    assert norm_code("aapl") == "AAPL" and norm_code(5930) == "005930"
+    assert "차익 실현" in rule_bear({"change_pct": 29.9})
