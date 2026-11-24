@@ -14,7 +14,7 @@ NOW = dt.datetime(2026, 11, 23, 10, 30, tzinfo=KST)
 
 def test_phase_and_alive():
     assert narrator.current_phase({}, NOW.replace(hour=7)) == "waiting"
-    assert narrator.current_phase({}, NOW.replace(hour=16)) == "done"
+    assert narrator.current_phase({}, NOW.replace(hour=16)) == "off"     # 오늘 한 번도 안 돎
     assert narrator.current_phase({"key": "intraday"}, NOW) == "intraday"
     age = narrator.heartbeat_age((NOW - dt.timedelta(seconds=30)).isoformat(), NOW)
     assert narrator.is_alive("intraday", age) and not narrator.is_alive("intraday", 300)
@@ -121,3 +121,14 @@ def test_premarket_writes_progress_and_heartbeat(tmp_path):
     t.premarket()
     assert any("과거 데이터 받는 중 1/" in x for x in seen) and seen[-1] == ""
     assert j.get_snapshot("heartbeat")["ts"]
+
+
+def test_never_ran_today_is_off_not_done():
+    late = NOW.replace(hour=23, minute=57)
+    key = narrator.current_phase({}, late, "us")
+    assert key == "off"
+    b = narrator.now_text(key, False, {}, [], late, "", "us")
+    assert "아직 실행되지 않았어요" in b["now"] and "미장_모의투자_시작.bat" in b["next"]
+    assert narrator.current_phase({"key": "done"}, late, "us") == "done"
+    early = NOW.replace(hour=7)
+    assert "아직 켜지지 않았어요" in narrator.now_text(narrator.current_phase({}, early), False, {}, [], early)["now"]

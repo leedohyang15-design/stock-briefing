@@ -67,8 +67,17 @@ def now_text(phase_key: str, alive: bool, status: Dict[str, Any], inplay: List[D
         if phase_key == "done":
             return {"now": "오늘 일정을 모두 마쳤어요. 아래에서 오늘 결과를 볼 수 있어요.",
                     "next": f"거래일 {T['where']}{T['pre']} 전에 켜 주세요 (자동실행 등록 시 {T['auto']} 자동 시작).", "tone": "idle"}
+        start = "미장_모의투자_시작.bat" if mkt == "us" else "모의투자_시작.bat"
+        if phase_key == "off":
+            return {"now": f"오늘 {'미장' if mkt == 'us' else '국장'} 트레이더는 아직 실행되지 않았어요 (지금 {T['where']}{now:%H:%M}).",
+                    "next": f"다음 거래일 {T['where']}{T['pre']} 장전 분석부터 시작해요 (자동실행 등록 시 {T['auto']} 자동 시작). "
+                            f"바로 켜려면 scripts 폴더의 '{start}'.", "tone": "idle"}
+        if phase_key == "waiting":
+            return {"now": f"장전 분석 시작({T['where']}{T['pre']}) 전이고, 트레이더는 아직 켜지지 않았어요.",
+                    "next": f"자동실행 등록 시 {T['auto']} 에 자동으로 켜져요. 바로 켜려면 scripts 폴더의 '{start}'.",
+                    "tone": "idle"}
         return {"now": "트레이더가 꺼져 있거나 응답이 없어요.",
-                "next": "scripts 폴더의 '모의투자_시작.bat' 을 더블클릭해 켜 주세요.", "tone": "stop"}
+                "next": f"scripts 폴더의 '{start}' 을 더블클릭해 켜 주세요.", "tone": "stop"}
     positions = status.get("positions") or []
     pending = [i for i in inplay if i.get("status") == "pending"]
     watching = [i for i in inplay if i.get("status") in ("watch", "cooldown")]
@@ -125,7 +134,8 @@ def current_phase(phase_snap: Dict[str, Any], now: dt.datetime, mkt: str = "kr")
     key = (phase_snap or {}).get("key")
     if key:
         return key
-    return "waiting" if now.strftime("%H%M") < TIMES[mkt]["pre"].replace(":", "") else "done"
+    # 오늘 한 번도 돌지 않았으면 '끝남(done)'이 아니라 '안 돎(off)'
+    return "waiting" if now.strftime("%H%M") < TIMES[mkt]["pre"].replace(":", "") else "off"
 
 
 SUFFIX = {"pass": "👍", "reject": "✋", "wait": "⏳", "info": ""}
