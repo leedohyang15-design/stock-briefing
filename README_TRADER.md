@@ -63,7 +63,7 @@ TELEGRAM_CHAT_ID=...
 GEMINI_API_KEY=...
 ```
 
-> 💡 **PC를 계속 켜 두기 어렵다면** 서버에서 24시간 돌리세요 → [README_SERVER.md](README_SERVER.md) (AWS Lightsail 서울, 월 약 5달러)
+> 💡 **PC를 계속 켜 두기 어렵다면** 서버에서 24시간 돌리세요 → 무료: [README_ORACLE.md](README_ORACLE.md) (오라클 클라우드 Always Free) / 유료: [README_SERVER.md](README_SERVER.md) (AWS Lightsail 서울, 월 약 5달러)
 
 ## 4. 가장 쉬운 실행: 더블클릭
 
