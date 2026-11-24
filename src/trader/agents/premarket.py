@@ -139,7 +139,7 @@ def agent_macro(llm, lines: List[str]) -> AgentResult:
     for ln in lines:
         if "나스닥" in ln:
             score = 1 if "+" in ln.split("(")[-1] else -1
-    return AgentResult(1, "매크로", "info", f"분위기 {score:+d} (규칙 기반: 나스닥 방향)", {"score": score})
+    return AgentResult(1, "매크로", "info", f"분위기 {score:+d} (규칙 기반: 나스닥 방향 · {_why(llm)})", {"score": score})
 
 
 def agent_news(llm, headlines: List[str]) -> AgentResult:
@@ -149,7 +149,7 @@ def agent_news(llm, headlines: List[str]) -> AgentResult:
     if out:
         return AgentResult(2, "시사·뉴스", "info", out.get("summary", ""),
                            {"positive": out.get("positive", []), "negative": out.get("negative", []), "headlines": headlines})
-    return AgentResult(2, "시사·뉴스", "info", f"주요 뉴스 {len(headlines)}건 수집 (LLM 요약 없음)", {"headlines": headlines})
+    return AgentResult(2, "시사·뉴스", "info", f"주요 뉴스 {len(headlines)}건 수집 (요약 없음 · {_why(llm)})", {"headlines": headlines})
 
 
 def agent_disclosure(pool: List[Dict[str, Any]], notices_fn, keywords: List[str]) -> AgentResult:
@@ -187,6 +187,22 @@ def norm_code(code) -> str:
     return c.zfill(6) if c.isdigit() else c.upper()
 
 
+def _why(llm) -> str:
+    return getattr(llm, "why_none", lambda: "LLM 없음")()
+
+
+def rule_bull(s: Dict[str, Any]) -> str:
+    """LLM 이 없을 때 데이터로 만드는 매수 근거."""
+    chg = s.get("change_pct") or 0.0
+    val = (s.get("value_krw") or 0) / 1e8
+    amt = f"거래대금 {val:,.0f}억" if val >= 1 else "거래 활발"
+    if chg >= 10:
+        return f"전일 {chg:+.1f}% 급등 + {amt} → 관심이 몰린 주도주, 시가범위 돌파 시 추세 지속 기대 (데이터 기반)"
+    if chg >= 0:
+        return f"{amt}로 상위권, 전일 {chg:+.1f}% → 오늘도 거래가 붙으면 돌파 노려볼 만함 (데이터 기반)"
+    return f"{amt}로 상위권이나 전일 {chg:+.1f}% → 반등 시도 시 단기 기회 (데이터 기반)"
+
+
 def rule_bear(s: Dict[str, Any]) -> str:
     """LLM 이 약세 근거를 못 냈을 때 데이터로 만드는 최소한의 위험 요인."""
     chg = s.get("change_pct") or 0.0
@@ -219,14 +235,20 @@ def agent_debate(llm, brief: str, pool: List[Dict[str, Any]]) -> (AgentResult, A
             if it.get("bear") and str(it["bear"]).strip() not in ("-", "없음"):
                 bear[c] = str(it["bear"])
     filled = 0
+    if not bull:   # LLM 없음·실패 → 거래대금 상위 10개를 데이터로 양쪽 의견 작성 (토론이 비지 않게)
+        for p in sorted(pool, key=lambda x: -(x.get("value_krw") or 0))[:10]:
+            bull[p["code"]] = rule_bull(p)
+            bear[p["code"]] = rule_bear(p)
+        tag = f" (데이터 기반 · {_why(llm)})"
+        return (AgentResult(6, "강세론자", "info", f"{len(bull)}종목 의견{tag}", {"items": bull}),
+                AgentResult(7, "약세론자", "info", f"{len(bear)}종목 의견{tag}", {"items": bear}))
     for p in pool:
         if p["code"] in bull and p["code"] not in bear:
             bear[p["code"]] = rule_bear(p)
             filled += 1
-    r6 = AgentResult(6, "강세론자", "info", f"{len(bull)}종목 의견" if bull else "LLM 없음 → 의견 없음", {"items": bull})
+    r6 = AgentResult(6, "강세론자", "info", f"{len(bull)}종목 의견", {"items": bull})
     r7 = AgentResult(7, "약세론자", "info",
-                     (f"{len(bear)}종목 의견" + (f" (데이터 기반 {filled}개 보충)" if filled else "")) if bear
-                     else "LLM 없음 → 의견 없음", {"items": bear})
+                     f"{len(bear)}종목 의견" + (f" (데이터 기반 {filled}개 보충)" if filled else ""), {"items": bear})
     return r6, r7
 
 
@@ -257,7 +279,7 @@ def agent_pm(llm, brief: str, bull: Dict[str, str], bear: Dict[str, str], pool: 
     if not wl:
         wl = [{"code": s["code"], "name": s["name"], "note": "거래대금 상위 (규칙 기반)"}
               for s in pool if s["code"] not in excluded][:max_n]
-        summary = summary or "LLM 판단 없음 → 전일 거래대금 상위로 관심종목 구성"
+        summary = summary or f"{_why(llm)} → 전일 거래대금 상위로 관심종목 구성"
     return AgentResult(8, "수석 트레이더(PM)", "info", f"관심종목 {len(wl)}개 · 공격성 {aggression} · {summary}",
                        {"watchlist": wl, "exclude": excl, "aggression": aggression})
 

@@ -160,3 +160,38 @@ def test_premarket_pm_llm_choice_validated():
     from src.trader.agents.premarket import norm_code, rule_bear
     assert norm_code("aapl") == "AAPL" and norm_code(5930) == "005930"
     assert "차익 실현" in rule_bear({"change_pct": 29.9})
+
+
+def test_llm_down_gives_data_debate_and_reasons(monkeypatch):
+    from src.trader import llm as llm_mod
+    monkeypatch.setenv("GEMINI_API_KEY", "")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "")
+    dead = llm_mod.LLM()
+    assert not dead.available and "키 없음" in dead.status() and "키 없음" in dead.selftest()
+    pool = [{"code": "000001", "name": "가", "price": 1, "change_pct": 12.0, "value_krw": 5e10},
+            {"code": "000002", "name": "나", "price": 1, "change_pct": -4.0, "value_krw": 4e10}]
+    r6, r7 = premarket.agent_debate(dead, "", pool)
+    assert set(r6.data["items"]) == set(r7.data["items"]) == {"000001", "000002"}
+    assert "데이터 기반" in r6.reason and "키 없음" in r6.reason
+    news = [{"title": "실적 개선 기대", "date": ""}]
+    assert intraday.news_check(dead, "샘플", news, [], [], False).decision == "pass"   # 모의: 키워드만 확인
+    assert intraday.news_check(dead, "샘플", news, [], [], True).decision == "reject"  # 실계좌: 보수적
+
+
+def test_llm_error_reason_and_quota_cooldown(monkeypatch):
+    from src.trader import llm as llm_mod
+    monkeypatch.setenv("GEMINI_API_KEY", "x")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "")
+    m = llm_mod.LLM()
+    tried = []
+    def boom(p, model, *a):
+        tried.append(model)
+        raise RuntimeError("429 RESOURCE_EXHAUSTED quota")
+    m._call = boom
+    assert m.json("s", "p") is None and "할당량" in m.status()
+    assert len(tried) == len(m.gemini_models)            # 백업 모델까지 시도
+    m.json("s", "p")
+    assert len(tried) == len(m.gemini_models)            # 할당량 초과 모델은 잠시 건너뜀
+    m._call = lambda *a: '{"ok": true}'
+    m._cooldown.clear()
+    assert m.json("s", "p") == {"ok": True} and m.status() == "LLM 정상"

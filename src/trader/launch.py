@@ -159,6 +159,11 @@ def main(argv=None) -> int:
         url += f"/?m={m.key}"
     mode = "실계좌" if args.live else f"모의투자 (가상 {args.paper_cash:,.0f}원, 실제 주문 없음)"
     print(f"[트레이더] {mode} 시작. 창을 닫으면 멈춥니다. 장 마감 후 15:40 리포트까지 켜 두세요.")
+    try:
+        from .llm import get_llm
+        print(get_llm().selftest())
+    except Exception as e:  # noqa: BLE001
+        print(f"[LLM] 점검 실패: {e}")
 
     def trader():
         try:

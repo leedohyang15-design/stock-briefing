@@ -127,10 +127,11 @@ def news_check(llm, name: str, news: List[Dict[str, str]], notices: List[Dict[st
                                {"title": n["title"], "date": n.get("date", "")})
     if not items:
         return AgentResult(12, "실시간 뉴스·공시", "pass", "최근 뉴스·공시 없음")
+    why = getattr(llm, "why_none", lambda: "LLM 없음")
     if not llm.available:
         if llm_required:
-            return AgentResult(12, "실시간 뉴스·공시", "reject", "LLM 없음 → 보수적으로 거부 (llm_required)")
-        return AgentResult(12, "실시간 뉴스·공시", "pass", "키워드 악재 없음 (LLM 미사용)")
+            return AgentResult(12, "실시간 뉴스·공시", "reject", f"{why()} → 보수적으로 거부 (실계좌)")
+        return AgentResult(12, "실시간 뉴스·공시", "pass", f"키워드 악재 없음 ({why()} → 키워드만 확인)")
     lines = "\n".join(f"- [{k}] {n.get('date', '')} {n['title']}" for k, n in items)
     out = llm.json("너는 주식 단타팀의 실시간 뉴스·공시 확인 담당이다. 뉴스가 영어면 영어로 이해하고 한국어로 답한다. 호재 여부가 아니라 '오늘 장중 급락이나 "
                    "거래정지 위험이 있는 악재'가 있는지만 판단한다.",
@@ -138,8 +139,8 @@ def news_check(llm, name: str, news: List[Dict[str, str]], notices: List[Dict[st
                    '형식: {"verdict": "pass 또는 reject", "reason": "한 문장"}', 300)
     if not out or out.get("verdict") not in ("pass", "reject"):
         if llm_required:
-            return AgentResult(12, "실시간 뉴스·공시", "reject", "LLM 판정 실패 → 보수적으로 거부")
-        return AgentResult(12, "실시간 뉴스·공시", "pass", "LLM 판정 실패, 키워드 악재 없음")
+            return AgentResult(12, "실시간 뉴스·공시", "reject", f"{why()} → 보수적으로 거부 (실계좌)")
+        return AgentResult(12, "실시간 뉴스·공시", "pass", f"키워드 악재 없음 ({why()} → 키워드만 확인)")
     return AgentResult(12, "실시간 뉴스·공시", out["verdict"], out.get("reason", ""), {"checked": len(items)})
 
 

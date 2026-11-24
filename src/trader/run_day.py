@@ -148,6 +148,9 @@ class DayTrader:
         if self.state:
             self.state.aggression = rep.aggression
         self.j.snapshot("premarket", rep.to_dict())
+        st_fn = getattr(self.llm, "status", None)
+        if st_fn:
+            self.j.event("정보" if st_fn() == "LLM 정상" else "경고", f"AI(LLM) 상태: {st_fn()}")
         wl = ", ".join(c.name for c in rep.watchlist)
         self.j.event("정보", f"수석 트레이더: 관심종목 {len(rep.watchlist)}개 ({wl}) · 공격성 {rep.aggression}")
         self.tg.send(f"[장전 분석] 공격성 {rep.aggression}\n관심종목: {wl}\n제외: {len(rep.excluded)}종목\n" +
@@ -355,7 +358,7 @@ class DayTrader:
             return AgentResult(12, "실시간 뉴스·공시", "reject", f"뉴스·공시 조회 실패 → 보수적으로 거부 ({e})")
         rows = intraday.recent_only(rows, self.now(), self.s.news.get("lookback_hours", 24))
         return intraday.news_check(self.llm, ip.name, rows, [], self.s.news.get("reject_keywords", []),
-                                   self.s.news.get("llm_required", True))
+                                   self.s.news.get("llm_required", True) and self.broker.mode != "paper")
 
     def handle_pending(self, code: str) -> None:
         cs = self.codes[code]
