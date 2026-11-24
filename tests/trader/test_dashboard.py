@@ -103,3 +103,21 @@ def test_password_protection_and_db_download(tmp_path):
         assert urllib.request.urlopen(f"http://127.0.0.1:{open_srv.server_address[1]}/").status == 200
     finally:
         open_srv.shutdown()
+
+
+def test_premarket_progress_shown_in_banner():
+    b = narrator.now_text("premarket", True, {}, [], NOW, "과거 데이터 받는 중 3/40: A")
+    assert b["now"].startswith("과거 데이터 받는 중 3/40")
+    assert "장전 분석팀" in narrator.now_text("premarket", True, {}, [], NOW)["now"]
+
+
+def test_premarket_writes_progress_and_heartbeat(tmp_path):
+    from .test_day_flow import _trader
+    t, j, kis = _trader(tmp_path, lambda h: 10100)
+    t.start(1_000_000)
+    seen = []
+    orig = t.progress
+    t.progress = lambda text: (seen.append(text), orig(text))
+    t.premarket()
+    assert any("과거 데이터 받는 중 1/" in x for x in seen) and seen[-1] == ""
+    assert j.get_snapshot("heartbeat")["ts"]

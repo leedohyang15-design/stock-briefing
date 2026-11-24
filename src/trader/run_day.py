@@ -125,8 +125,14 @@ class DayTrader:
                 f"상태: {'중단 - ' + s.stop_reason if s.stopped else '운영 중'}")
 
     # ── 장전 ──
+    def progress(self, text: str) -> None:
+        """대시보드 '지금 하는 일'에 진행 상황 표시 + 살아 있음 신호."""
+        self.j.snapshot("progress", {"text": text, "ts": self.now().isoformat(timespec="seconds")})
+        self.beat()
+
     def premarket(self) -> PremarketReport:
         self.j.event("정보", "장전 분석팀 실행 시작 (에이전트 1~8)")
+        self.progress("장전 회의 중: 시장·뉴스·공시를 보고 관심종목을 고르고 있어요 (1~2분)")
         rep = run_premarket(self.llm, self.inputs or default_inputs(self.kis), self.s.news.get("reject_keywords", []))
         for r in rep.results:
             self.j.agent_result(r)
@@ -138,18 +144,23 @@ class DayTrader:
         self.j.event("정보", f"수석 트레이더: 관심종목 {len(rep.watchlist)}개 ({wl}) · 공격성 {rep.aggression}")
         self.tg.send(f"[장전 분석] 공격성 {rep.aggression}\n관심종목: {wl}\n제외: {len(rep.excluded)}종목\n" +
                      "\n".join(f"· {r.agent}: {r.reason}" for r in rep.results[:5]))
-        # 일봉·과거 분봉 미리 받기 (타임머신·Stocks in Play 계산용)
-        budget = 0
+        # 일봉·과거 분봉 미리 받기 (타임머신·Stocks in Play 계산용). 이미 받은 날짜는 건너뛰므로 둘째 날부터 빠름
+        late = self.hhmm() >= "0850"   # 장 시작 직전·장중에 켰으면 빨리 매매로 넘어가도록 덜 받음
         minutes = self.s.strategy["orb_minutes"]
-        for c in rep.watchlist + [Candidate(p["code"], p["name"]) for p in rep.pool[:30]]:
+        cands = rep.watchlist + [Candidate(p["code"], p["name"]) for p in rep.pool[:(15 if late else 30)]]
+        seen = set()
+        cands = [c for c in cands if not (c.code in seen or seen.add(c.code))]
+        for i, c in enumerate(cands, 1):
+            self.progress(f"과거 데이터 받는 중 {i}/{len(cands)}: {c.name} (일봉·장 초반 거래량). 첫날만 오래 걸려요")
             datalog.ensure_daily(self.kis, self.j, c.code, 40)
             datalog.ensure_open_volumes(self.kis, self.j, c.code, minutes, 14)  # 실측 상대거래량용 (날짜당 1회 호출)
         if self.s.timemachine.get("enabled", True):
-            for c in rep.watchlist:
-                if budget > 2000:
-                    break
-                datalog.ensure_history(self.kis, self.j, c.code, self.s.timemachine.get("lookback_days", 59), 240)
-                budget += 240
+            targets = rep.watchlist[:(3 if late else 10)]
+            days = 15 if late else self.s.timemachine.get("lookback_days", 59)
+            for i, c in enumerate(targets, 1):
+                self.progress(f"타임머신용 과거 1분봉 받는 중 {i}/{len(targets)}: {c.name}")
+                datalog.ensure_history(self.kis, self.j, c.code, days, 240)
+        self.progress("")
         return rep
 
     # ── 09:0x Stocks in Play ──

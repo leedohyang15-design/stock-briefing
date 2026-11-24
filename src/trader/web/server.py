@@ -38,6 +38,8 @@ def build_state(j: Journal, now=None) -> Dict[str, Any]:
         phase = {}
     hb = (j.get_snapshot("heartbeat", {}) or {}).get("ts")
     key = narrator.current_phase(phase, now)
+    prog = j.get_snapshot("progress", {}) or {}
+    progress = prog.get("text", "") if str(prog.get("ts", ""))[:10] == iso_today else ""
     alive = narrator.is_alive(key, narrator.heartbeat_age(hb, now))
     inplay = j.get_snapshot("inplay", []) or [] if status else []
     pre = j.get_snapshot("premarket", {}) or {}
@@ -62,7 +64,7 @@ def build_state(j: Journal, now=None) -> Dict[str, Any]:
         "now": now.isoformat(timespec="seconds"),
         "phase": {"key": key, "history": phase.get("history", {}), "steps": narrator.PHASES},
         "alive": alive,
-        "banner": narrator.now_text(key, alive, status, inplay, now),
+        "banner": narrator.now_text(key, alive, status, inplay, now, progress),
         "status": status,
         "premarket": pre,
         "inplay": inplay,

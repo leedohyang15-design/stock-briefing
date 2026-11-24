@@ -51,7 +51,7 @@ def market_text(status: Dict[str, Any]) -> str:
 
 
 def now_text(phase_key: str, alive: bool, status: Dict[str, Any], inplay: List[Dict[str, Any]],
-             now: dt.datetime) -> Dict[str, str]:
+             now: dt.datetime, progress: str = "") -> Dict[str, str]:
     """{"now": 지금 하는 일, "next": 다음에 할 일, "tone": ok|warn|stop|idle}"""
     hm = now.strftime("%H:%M")
     if not alive:
@@ -68,6 +68,9 @@ def now_text(phase_key: str, alive: bool, status: Dict[str, Any], inplay: List[D
         return {"now": f"장전 분석 시작(08:00)을 기다리는 중이에요. (지금 {hm})",
                 "next": "08:00 에 에이전트 1~8번이 시장·뉴스·공시를 분석해요.", "tone": "idle"}
     if phase_key == "premarket":
+        if progress:
+            return {"now": progress, "next": "끝나면 장 초반 거래량으로 오늘 지켜볼 종목(Stocks in Play)을 정해요.",
+                    "tone": "ok"}
         return {"now": "장전 분석팀(에이전트 1~8번)이 시장·뉴스·공시를 분석하고 관심종목을 고르는 중이에요.",
                 "next": "09:05 에 장 초반 거래량으로 오늘 지켜볼 종목(Stocks in Play)을 정해요.", "tone": "ok"}
     if phase_key == "ready":
